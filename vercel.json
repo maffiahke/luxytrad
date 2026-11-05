@@ -1,9 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "prisma generate && npm run build",
+  "buildCommand": "prisma generate && npm run build && npm run build:api",
   "outputDirectory": "dist",
   "functions": {
-    "api/index.ts": {
+    "api/index.js": {
       "memory": 1024,
       "maxDuration": 30,
       "includeFiles": "node_modules/.prisma/client/**"

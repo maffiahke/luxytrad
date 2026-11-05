@@ -21,3 +21,6 @@ luxytrades.zip
 # vercel / editor local artifacts
 .vercel/
 *.tsbuildinfo
+
+# generated serverless bundle (produced by `npm run build:api` during build)
+api/index.js
