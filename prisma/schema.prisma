@@ -1,0 +1,456 @@
+// Luxytrades Admin — Prisma schema (Neon Postgres)
+// Model shapes mirror src/admin/types.ts field-for-field so the API serializers
+// can emit the exact JSON the console already consumes from the mock adapter.
+
+generator client {
+  provider      = "prisma-client-js"
+  // "native" for local dev/self-hosted; the rhel target is what Vercel's Node
+  // runtime needs so the query engine binary is bundled into the serverless function.
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+/* --------------------------------- enums --------------------------------- */
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  BANNED
+}
+
+enum KycStatus {
+  NONE
+  PENDING
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+}
+
+enum FundType {
+  DEPOSIT
+  WITHDRAWAL
+  TRADE_DEBIT
+  TRADE_CREDIT
+  BONUS
+  ADJUSTMENT
+  REFERRAL
+}
+
+enum FundChannel {
+  MPESA
+  CRYPTO
+  BANK
+  CARD
+  MANUAL
+}
+
+enum FundStatus {
+  PENDING
+  ACTION_REQUIRED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  COMPLETED
+  FAILED
+}
+
+enum TradeSide {
+  BUY
+  SELL
+}
+
+enum PositionStatus {
+  OPEN
+  WON
+  LOST
+  CLOSED_EARLY
+  CANCELLED
+}
+
+enum RunStatus {
+  ACTIVE
+  COMPLETED
+  STOPPED
+}
+
+enum BotStatus {
+  IDLE
+  RUNNING
+  DONE
+  STOPPED
+}
+
+enum MarketCategory {
+  FOREX
+  COMMODITIES
+  INDICES
+  CRYPTO
+  STOCK
+}
+
+enum GatewayKind {
+  MPESA_DARAJA
+  CRYPTO_USDT_TRC20
+  CRYPTO_BTC
+  CARD_STRIPE
+  BANK
+}
+
+enum TicketStatus {
+  OPEN
+  PENDING
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum AdminRole {
+  SUPER_ADMIN
+  OPS
+  FINANCE
+  SUPPORT
+  READONLY
+}
+
+/* -------------------------------- models --------------------------------- */
+
+model User {
+  id           String      @id @default(cuid())
+  username     String?     @unique
+  phone        String      @unique
+  email        String?
+  fullName     String
+  countryCode  String      @default("KE")
+  status       UserStatus  @default(ACTIVE)
+  kyc          KycStatus   @default(NONE)
+  referralCode String      @unique
+  referredBy   String?
+  // scrypt hash of the trader's login password — never returned to the client.
+  passwordHash String      @default("")
+  realBalance  Float       @default(0)
+  demoBalance  Float       @default(0)
+  winRate      Float?
+  lastLoginAt  DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  deposits    Deposit[]
+  withdrawals Withdrawal[]
+  positions   Position[]
+  runs        Run[]
+  bots        Bot[]
+  ledger      LedgerEntry[]
+  kycApps     KycApplication[]
+  tickets     Ticket[]
+
+  @@index([status])
+  @@index([kyc])
+  @@index([phone])
+}
+
+model Deposit {
+  id        String       @id @default(cuid())
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  channel   FundChannel
+  amount    Float
+  bonusPct  Float        @default(0)
+  credited  Float
+  status    FundStatus   @default(PENDING)
+  reference String?
+  mpesaCode String?
+  // Daraja CheckoutRequestID — the id the trader polls and the callback echoes back.
+  // Unique so a status poll / callback can only ever credit a checkout once.
+  checkoutRequestId String? @unique
+  // KES actually pushed to the phone (USD * gateway rate at request time).
+  amountKes Float?
+  note      String?
+  createdAt DateTime     @default(now())
+
+  @@index([status])
+  @@index([userId])
+}
+
+model Withdrawal {
+  id          String      @id @default(cuid())
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+  channel     FundChannel
+  amount      Float
+  fee         Float       @default(0)
+  destination String
+  status      FundStatus  @default(PENDING)
+  opsApproved Boolean     @default(false)
+  note        String?
+  createdAt   DateTime    @default(now())
+
+  @@index([status])
+  @@index([userId])
+}
+
+model Position {
+  id         String         @id @default(cuid())
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+  market     String
+  side       TradeSide
+  amount     Float
+  entryPrice Float
+  closePrice Float?
+  duration   Int
+  status     PositionStatus @default(OPEN)
+  payout     Float?
+  // realized P&L booked when the position settled (signed).
+  pnl        Float?
+  // which wallet the stake came from / the payout returns to.
+  account    String         @default("real")
+  // price precision for display, snapshotted from the market at open.
+  digits     Int            @default(5)
+  // true when the trade was launched by the trader's auto-trading bot.
+  bot        Boolean        @default(false)
+  botId      String?
+  run        Run?           @relation(fields: [runId], references: [id])
+  runId      String?
+  openedAt   DateTime       @default(now())
+  expiresAt  DateTime
+
+  @@index([status])
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([botId])
+}
+
+model Run {
+  id        String    @id @default(cuid())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  market    String
+  side      TradeSide
+  amount    Float
+  duration  Int
+  total     Int
+  remaining Int
+  status    RunStatus @default(ACTIVE)
+  account   String    @default("real")
+  // id of the position currently in flight, or null between trades.
+  activeId  String?
+
+  positions Position[]
+
+  @@index([status])
+  @@index([userId])
+}
+
+model Bot {
+  id          String    @id @default(cuid())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+  market      String
+  account     String    @default("real")
+  stake       Float
+  duration    Int
+  total       Int
+  done        Int       @default(0)
+  repeat      Boolean   @default(false)
+  takeProfit  Float     @default(0)
+  stopLoss    Float     @default(0)
+  earlyClose  Boolean   @default(false)
+  status      BotStatus @default(IDLE)
+  realized    Float     @default(0)
+  // position currently in flight for this bot, or null between trades.
+  activeId    String?
+  createdAt   DateTime  @default(now())
+  startedAt   DateTime?
+  stoppedAt   DateTime?
+
+  @@index([userId])
+  @@index([status])
+}
+
+model Market {
+  code      String         @id
+  name      String
+  category  MarketCategory
+  digits    Int            @default(5)
+  basePrice Float
+  // price at the previous tick — the bot's v1 momentum proxy (last-tick slope).
+  prevPrice Float          @default(0)
+  payoutPct Float          @default(85)
+  active    Boolean        @default(true)
+  updatedAt DateTime       @updatedAt
+}
+
+model Gateway {
+  key       String       @id
+  kind      GatewayKind
+  label     String
+  enabled   Boolean      @default(false)
+  minAmount Float        @default(0)
+  maxAmount Float        @default(0)
+  feePct    Float        @default(0)
+  feeFixed  Float        @default(0)
+  // AES-256-GCM encrypted credentials blob (iv:authTag:ciphertext), never returned raw.
+  secretEnc String?
+}
+
+model GatewayCallback {
+  id            String   @id @default(cuid())
+  gateway       String
+  eventType     String
+  reference     String?
+  amount        Float?
+  signatureValid Boolean @default(false)
+  processed     Boolean  @default(false)
+  raw           Json?
+  createdAt     DateTime @default(now())
+
+  @@index([reference])
+}
+
+model LedgerEntry {
+  id           String   @id @default(cuid())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId       String
+  type         FundType
+  amount       Float
+  balanceAfter Float
+  note         String?
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@index([type])
+}
+
+model KycApplication {
+  id          String     @id @default(cuid())
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+  docType     String
+  status      KycStatus  @default(PENDING)
+  country     String
+  note        String?
+  submittedAt DateTime   @default(now())
+
+  @@index([status])
+}
+
+model Ticket {
+  id        String         @id @default(cuid())
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  subject   String
+  body      String
+  category  String
+  status    TicketStatus   @default(OPEN)
+  priority  TicketPriority @default(MEDIUM)
+  createdAt DateTime       @default(now())
+
+  messages TicketMessage[]
+
+  @@index([status])
+}
+
+model TicketMessage {
+  id        String   @id @default(cuid())
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticketId  String
+  fromAdmin Boolean
+  body      String
+  at        DateTime @default(now())
+}
+
+model AdminUser {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String
+  role         AdminRole @default(OPS)
+  active       Boolean   @default(true)
+  passwordHash String
+  lastSeenAt   DateTime?
+  createdAt    DateTime  @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  admin     String
+  action    String
+  entity    String
+  entityId  String
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([createdAt])
+}
+
+// Singleton row (id = "platform") holding the platform-wide configuration edited
+// on the admin Settings page. Mirrors PlatformSettings in src/admin/types.ts.
+model PlatformSettings {
+  id                      String   @id @default("platform")
+  minDeposit              Float    @default(5)
+  maxDeposit              Float    @default(10000)
+  minWithdrawal           Float    @default(10)
+  maxWithdrawal           Float    @default(10000)
+  dailyWithdrawalCap      Float    @default(25000)
+  defaultDepositBonus     Float    @default(100)
+  maxBonus                Float    @default(5000)
+  kycRequiredToWithdraw   Boolean  @default(true)
+  maxOpenPositionsPerUser Int      @default(20)
+  defaultPayoutPct        Float    @default(85)
+  updatedAt               DateTime @updatedAt
+}
+
+// Singleton row (id = "email") holding the SMTP transport used for automatic
+// emails. Mirrors EmailSettings in src/admin/types.ts.
+model EmailSettings {
+  id          String   @id @default("email")
+  enabled     Boolean  @default(true)
+  host        String   @default("")
+  port        Int      @default(587)
+  secure      Boolean  @default(false)
+  username    String   @default("")
+  // AES-256-GCM encrypted SMTP password — never returned raw, only `passwordSet`.
+  passwordEnc String?
+  fromName    String   @default("Luxytrades")
+  fromEmail   String   @default("")
+  replyTo     String   @default("")
+  updatedAt   DateTime @updatedAt
+}
+
+// One row per automatic email. `key` is both the identity and the auto-send
+// trigger fired by the matching platform event. Mirrors EmailTemplate.
+model EmailTemplate {
+  key         String   @id
+  name        String
+  description String
+  category    String   @default("Account")
+  subject     String
+  body        String
+  variables   String[]
+  enabled     Boolean  @default(true)
+  updatedAt   DateTime @updatedAt
+}
+
+// Delivery log — one row per automatic (or test) email attempt.
+model EmailLog {
+  id        String   @id @default(cuid())
+  to        String
+  template  String
+  subject   String
+  status    String   @default("QUEUED") // SENT | FAILED | QUEUED
+  error     String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}

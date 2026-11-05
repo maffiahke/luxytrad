@@ -1,0 +1,23 @@
+node_modules/
+dist/
+dist-server/
+freebuff-sites-build/
+*.log
+vite.pid
+*.tsbuildinfo
+luxytrades.zip
+.DS_Store
+.andromity/
+.env
+.env.local
+.env.*.local
+
+# other tools' local workspace scaffolding (not project source)
+.cloud-attachments/
+.freebuff/
+.impeccable/
+.perch/
+
+# vercel / editor local artifacts
+.vercel/
+*.tsbuildinfo
