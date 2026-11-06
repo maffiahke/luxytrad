@@ -194,7 +194,10 @@ messagesRouter.post(
     const identifier = username;
     const user =
       (await prisma.user.findUnique({ where: { username: identifier.toLowerCase() } })) ??
-      (await prisma.user.findUnique({ where: { phone: identifier.replace(/\D/g, "") } }));
+      (await prisma.user.findUnique({ where: { phone: identifier.replace(/\D/g, "") } })) ??
+      (await prisma.user.findUnique({ where: { phone: identifier.replace(/\D/g, "").startsWith("0") ? identifier.replace(/\D/g, "").slice(1) : identifier.replace(/\D/g, "") } })) ??
+      (await prisma.user.findUnique({ where: { phone: `254${identifier.replace(/\D/g, "").replace(/^0+/, "")}` } })) ??
+      (await prisma.user.findFirst({ where: { email: identifier.toLowerCase() } }));
     if (!user) throw new ApiError(404, "Account not found");
 
     const { notifyUser } = await import("../lib/messages");
