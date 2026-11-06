@@ -10,6 +10,9 @@
     <!-- Luxytrades payout feed (network + instant delivery while app closed) -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- POST_NOTIFICATIONS only exists on API 33+; declaring it unconditionally
+         is harmless on older versions (unknown perms are ignored). The lint
+         warning is expected and safe to ignore. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />

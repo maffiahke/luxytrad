@@ -40377,29 +40377,38 @@ function normalizeServiceAccountRaw(value) {
     }
   }
 }
+function signJwtRS256(header, claims, privateKeyPem) {
+  const b64u = (input) => Buffer.from(input).toString("base64url");
+  const head = b64u(JSON.stringify(header));
+  const body = b64u(JSON.stringify(claims));
+  const signature = import_node_crypto3.default.sign(
+    "RSA-SHA256",
+    Buffer.from(`${head}.${body}`),
+    import_node_crypto3.default.createPrivateKey(privateKeyPem)
+  );
+  return `${head}.${body}.${b64u(signature)}`;
+}
 async function fcmAccessToken(account) {
   if (cachedToken && cachedToken.expMs > Date.now() + 6e4) return cachedToken.value;
   try {
     const iat = Math.floor(Date.now() / 1e3);
-    const jwt3 = import_node_crypto3.default.sign(
-      "RSA-SHA256",
-      Buffer.from(
-        JSON.stringify({
-          iss: account.client_email,
-          scope: "https://www.googleapis.com/auth/firebase.messaging",
-          aud: "https://oauth2.googleapis.com/token",
-          iat,
-          exp: iat + 3600
-        })
-      ),
-      import_node_crypto3.default.createPrivateKey(account.private_key)
+    const assertion = signJwtRS256(
+      { alg: "RS256", typ: "JWT" },
+      {
+        iss: account.client_email,
+        scope: "https://www.googleapis.com/auth/firebase.messaging",
+        aud: "https://oauth2.googleapis.com/token",
+        iat,
+        exp: iat + 3600
+      },
+      account.private_key
     );
     const res = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-        assertion: jwt3.toString("base64")
+        assertion
       }).toString()
     });
     if (!res.ok) return null;

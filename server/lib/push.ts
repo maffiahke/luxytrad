@@ -109,23 +109,39 @@ function normalizeServiceAccountRaw(value: string | undefined): string | undefin
 
 let cachedToken: { value: string; expMs: number } | null = null;
 
+/**
+ * Self-contained JWT signer (RS256) built on node:crypto — no dependency.
+ * Produces the compact serialisation header.claims.signature required by
+ * Google's OAuth2 token endpoint. (crypto.sign() alone returns only the
+ * raw signature; omitting header.claims makes Google reject the assertion.)
+ */
+function signJwtRS256(header: Record<string, unknown>, claims: Record<string, unknown>, privateKeyPem: string): string {
+  const b64u = (input: string | Buffer): string => Buffer.from(input).toString("base64url");
+  const head = b64u(JSON.stringify(header));
+  const body = b64u(JSON.stringify(claims));
+  const signature = crypto.sign(
+    "RSA-SHA256",
+    Buffer.from(`${head}.${body}`),
+    crypto.createPrivateKey(privateKeyPem),
+  );
+  return `${head}.${body}.${b64u(signature)}`;
+}
+
 /** OAuth2 access token for the FCM API signed straight from the private key. */
 async function fcmAccessToken(account: ServiceAccount): Promise<string | null> {
   if (cachedToken && cachedToken.expMs > Date.now() + 60_000) return cachedToken.value;
   try {
     const iat = Math.floor(Date.now() / 1000);
-    const jwt = crypto.sign(
-      "RSA-SHA256",
-      Buffer.from(
-        JSON.stringify({
-          iss: account.client_email,
-          scope: "https://www.googleapis.com/auth/firebase.messaging",
-          aud: "https://oauth2.googleapis.com/token",
-          iat,
-          exp: iat + 3600,
-        }),
-      ),
-      crypto.createPrivateKey(account.private_key),
+    const assertion = signJwtRS256(
+      { alg: "RS256", typ: "JWT" },
+      {
+        iss: account.client_email,
+        scope: "https://www.googleapis.com/auth/firebase.messaging",
+        aud: "https://oauth2.googleapis.com/token",
+        iat,
+        exp: iat + 3600,
+      },
+      account.private_key,
     );
 
     const res = await fetch("https://oauth2.googleapis.com/token", {
@@ -133,7 +149,7 @@ async function fcmAccessToken(account: ServiceAccount): Promise<string | null> {
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-        assertion: jwt.toString("base64"),
+        assertion,
       }).toString(),
     });
     if (!res.ok) return null;
