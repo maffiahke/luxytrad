@@ -29,6 +29,8 @@ fun GoogleLogoHeader(
     onClearSelection: () -> Unit = {},
     onPinSelected: () -> Unit = {},
     onArchiveSelected: () -> Unit = {},
+    /** When true (Archived screen), the archive action un-archives instead. */
+    showingArchived: Boolean = false,
     onDeleteSelected: () -> Unit = {},
     onSearchClick: () -> Unit = {},
     onProfileClick: () -> Unit = {}
@@ -83,8 +85,8 @@ fun GoogleLogoHeader(
                     modifier = Modifier.testTag("archive_threads_button")
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Archive,
-                        contentDescription = "Archive conversation",
+                        imageVector = if (showingArchived) Icons.Default.Unarchive else Icons.Default.Archive,
+                        contentDescription = if (showingArchived) "Unarchive conversation" else "Archive conversation",
                         tint = MaterialTheme.colorScheme.onSurface
                     )
                 }

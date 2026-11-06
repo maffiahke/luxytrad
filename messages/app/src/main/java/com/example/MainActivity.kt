@@ -208,7 +208,8 @@ fun MessagesApp(viewModel: SmsViewModel = viewModel()) {
                 onToggleThreadSelection = { viewModel.toggleThreadSelection(it) },
                 onClearSelection = { viewModel.clearSelection() },
                 onPinSelected = { viewModel.pinSelectedThreads() },
-                onArchiveSelected = { viewModel.archiveSelectedThreads() },
+                // On the Archived screen the toolbar action un-archives.
+                onArchiveSelected = { viewModel.unarchiveSelectedThreads() },
                 onDeleteSelected = { viewModel.deleteSelectedThreads() },
                 onThreadClick = { viewModel.navigateTo(Screen.Conversation(it)) },
                 onSearchClick = { viewModel.navigateTo(Screen.Search) },

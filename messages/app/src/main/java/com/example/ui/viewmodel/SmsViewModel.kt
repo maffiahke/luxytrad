@@ -187,6 +187,15 @@ class SmsViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Un-archive: moves the selected threads back to the main inbox. */
+    fun unarchiveSelectedThreads() {
+        val toUnarchive = _selectedThreadIds.value
+        viewModelScope.launch {
+            toUnarchive.forEach { repository.archiveThread(it, false) }
+            clearSelection()
+        }
+    }
+
     fun pinSelectedThreads() {
         val toPin = _selectedThreadIds.value
         viewModelScope.launch {

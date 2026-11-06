@@ -65,6 +65,7 @@ fun HomeScreen(
                     onClearSelection = onClearSelection,
                     onPinSelected = onPinSelected,
                     onArchiveSelected = onArchiveSelected,
+                    showingArchived = selectedCategory == "Archived",
                     onDeleteSelected = onDeleteSelected,
                     onSearchClick = onSearchClick,
                     onProfileClick = onProfileClick
