@@ -105,10 +105,23 @@ class SmsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun syncDeviceInbox() {
+        // Auto path — incremental (new rows only), effectively instant.
         viewModelScope.launch {
             _isSyncing.value = true
             try {
-                repository.syncDeviceSmsInbox()
+                repository.syncDeviceSmsInbox(full = false)
+            } finally {
+                _isSyncing.value = false
+            }
+        }
+    }
+
+    /** Manual pull-to-refresh/"Sync" action re-reads the whole device inbox. */
+    fun fullSyncInbox() {
+        viewModelScope.launch {
+            _isSyncing.value = true
+            try {
+                repository.syncDeviceSmsInbox(full = true)
             } finally {
                 _isSyncing.value = false
             }

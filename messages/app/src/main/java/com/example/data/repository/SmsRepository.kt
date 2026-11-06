@@ -81,15 +81,32 @@ class SmsRepository(private val context: Context) {
     }
 
     /**
-     * Reads all SMS messages from device inbox (Telephony.Sms) and syncs into the local database.
-     * No mock data is used!
+     * Reads SMS messages from the device inbox (Telephony.Sms) and syncs them
+     * into the local database.
+     *
+     * [full] forces a complete re-read (the manual "Sync" action). The
+     * automatic paths — app open, permission granted, content observer —
+     * run incrementally: only rows newer than the last successful sync are
+     * queried, which makes a cold app open effectively instant.
      */
-    suspend fun syncDeviceSmsInbox(): Int = withContext(Dispatchers.IO) {
+    suspend fun syncDeviceSmsInbox(full: Boolean = false): Int = withContext(Dispatchers.IO) {
         if (!hasSmsPermission()) {
             return@withContext 0
         }
 
         registerSmsObserver()
+
+        val prefs = context.getSharedPreferences("sms_sync", Context.MODE_PRIVATE)
+        val sinceMs = if (full) 0L else prefs.getLong("last_sync_ms", 0L)
+
+        // Orphan-run guard: the content observer fires spuriously (and often)
+        // on some OEMs; skip runs within 1.5s of the previous one unless the
+        // user asked for a full refresh.
+        val now = System.currentTimeMillis()
+        if (!full && now - prefs.getLong("last_run_ms", 0L) < 1_500) {
+            return@withContext 0
+        }
+        prefs.edit().putLong("last_run_ms", now).apply()
 
         val rawMessages = mutableListOf<RawSms>()
         val projection = arrayOf(
@@ -103,11 +120,13 @@ class SmsRepository(private val context: Context) {
         )
 
         try {
+            val selection = if (sinceMs > 0L) "${Telephony.Sms.DATE} >= ?" else null
+            val selectionArgs = if (sinceMs > 0L) arrayOf((sinceMs - 5_000).toString()) else null
             val cursor = context.contentResolver.query(
                 Telephony.Sms.CONTENT_URI,
                 projection,
-                null,
-                null,
+                selection,
+                selectionArgs,
                 "${Telephony.Sms.DATE} DESC"
             )
 
@@ -154,6 +173,9 @@ class SmsRepository(private val context: Context) {
         }
 
         if (rawMessages.isEmpty()) {
+            // Nothing new — just tick the watermark so the next run also sees
+            // an empty delta instantly (no cursor scan, no contacts lookup).
+            prefs.edit().putLong("last_sync_ms", System.currentTimeMillis()).apply()
             return@withContext 0
         }
 
@@ -224,6 +246,10 @@ class SmsRepository(private val context: Context) {
 
         threadDao.insertAll(threadsToInsert)
         messageDao.insertAll(messagesToInsert)
+
+        // Persist the watermark at now (minus the overlap already applied on
+        // the next query) so the next incremental sync reads only new rows.
+        prefs.edit().putLong("last_sync_ms", System.currentTimeMillis() - 5_000).apply()
 
         return@withContext rawMessages.size
     }

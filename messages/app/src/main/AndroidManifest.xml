@@ -42,14 +42,43 @@
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Compose surface for the default-SMS-app role: tapping sms:
+                 links / shortcodes routes here. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SENDTO" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="sms" />
+                <data android:scheme="smsto" />
+            </intent-filter>
         </activity>
 
         <receiver
             android:name=".data.receiver.SmsBroadcastReceiver"
             android:exported="true"
             android:permission="android.permission.BROADCAST_SMS">
+            <!-- SMS_DELIVER is the default-SMS-app delivery path (this app is
+                 then responsible for storing the message in the system
+                 provider); SMS_RECEIVED is the broadcast every SMS app gets. -->
             <intent-filter android:priority="1000">
+                <action android:name="android.provider.Telephony.SMS_DELIVER" />
                 <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Required for holding the default-SMS-app role: MMS delivery path.
+             Deliberately minimal — MMS is stored by the platform when this app
+             is NOT default; as default it is accepted and ignored for now. -->
+        <receiver
+            android:name=".data.receiver.MmsBroadcastReceiver"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_WAP_PUSH">
+            <intent-filter>
+                <action android:name="android.provider.Telephony.WAP_PUSH_DELIVER" />
+                <action android:name="android.provider.Telephony.WAP_PUSH_RECEIVED" />
+                <data android:mimeType="application/vnd.wap.mms-message" />
             </intent-filter>
         </receiver>
 

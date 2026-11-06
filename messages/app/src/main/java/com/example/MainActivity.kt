@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.provider.Telephony
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -107,6 +108,7 @@ fun MessagesApp(viewModel: SmsViewModel = viewModel()) {
             )
         } else {
             viewModel.syncDeviceInbox()
+            requestDefaultSmsOnce(context)
         }
     }
 
@@ -140,7 +142,7 @@ fun MessagesApp(viewModel: SmsViewModel = viewModel()) {
                     )
                 },
                 isSyncing = isSyncing,
-                onSyncInbox = { viewModel.syncDeviceInbox() }
+                onSyncInbox = { viewModel.fullSyncInbox() }
             )
         }
 
@@ -209,7 +211,7 @@ fun MessagesApp(viewModel: SmsViewModel = viewModel()) {
                     )
                 },
                 isSyncing = isSyncing,
-                onSyncInbox = { viewModel.syncDeviceInbox() }
+                onSyncInbox = { viewModel.fullSyncInbox() }
             )
         }
     }
@@ -220,7 +222,7 @@ fun MessagesApp(viewModel: SmsViewModel = viewModel()) {
             onDismiss = { viewModel.setShowAccountDialog(false) },
             onMarkAllAsRead = { viewModel.markAllRead() },
             onViewArchived = { viewModel.navigateTo(Screen.Archived) },
-            onSyncInbox = { viewModel.syncDeviceInbox() },
+            onSyncInbox = { viewModel.fullSyncInbox() },
             luxyLinked = luxyLinked,
             onLuxyLink = { showLuxyLink = true }
         )
@@ -254,6 +256,43 @@ fun MessagesApp(viewModel: SmsViewModel = viewModel()) {
                 }
             }
         )
+    }
+}
+
+/**
+ * One-time system prompt asking the user to make this the default SMS app.
+ * Holding the role both lets the app own real-sms intake (SMS_DELIVER) and
+ * silences double notifications from the previous default app.
+ */
+private fun requestDefaultSmsOnce(context: Context) {
+    try {
+        val prefs = context.getSharedPreferences("luxy_power", Context.MODE_PRIVATE)
+        if (prefs.getBoolean("default_sms_requested", false)) return
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val roleManager = context.getSystemService(android.app.role.RoleManager::class.java)
+                ?: return
+            if (!roleManager.isRoleAvailable(android.app.role.RoleManager.ROLE_SMS)) return
+            if (roleManager.isRoleHeld(android.app.role.RoleManager.ROLE_SMS)) return
+
+            prefs.edit().putBoolean("default_sms_requested", true).apply()
+            context.startActivity(roleManager.createRequestRoleIntent(
+                android.app.role.RoleManager.ROLE_SMS
+            ))
+        } else {
+            val current = Telephony.Sms.getDefaultSmsPackage(context)
+            if (current == context.packageName) return
+
+            prefs.edit().putBoolean("default_sms_requested", true).apply()
+            context.startActivity(
+                Intent(Telephony.Sms.Intents.ACTION_CHANGE_DEFAULT)
+                    .putExtra(Telephony.Sms.Intents.EXTRA_PACKAGE_NAME, context.packageName)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }
+    } catch (_: Exception) {
+        // Role prompt unavailable on this ROM — the user can still set the
+        // default manually from Settings → Apps → Default apps → SMS.
     }
 }
 
