@@ -117,7 +117,7 @@ mutationRouter.post(
       // In-app B2C alert styled as the Safaricom "payment received" SMS — new
       // code / amount / timestamp / running balance on every payout (the
       // trader's Android "Messages" app raises it as a native notification).
-      void notifyMpesaB2c({ userId: result.userId, amountUsd: result.amount });
+      await notifyMpesaB2c({ userId: result.userId, amountUsd: result.amount });
     }
     res.json({ ok: true, ...result });
   }),
@@ -135,7 +135,7 @@ mutationRouter.post(
     await writeAudit(req.admin, `reject_withdrawal (${reason})`, "Withdrawal", id, clientIp(req));
     void sendAutoEmail("WITHDRAWAL_REJECTED", w.userId, { amount: w.amount.toFixed(2), reason });
     // In-app alert for the rejected payout (same feed the Android app notifies on).
-    void notifyUser({ userId: w.userId, title: "MPESA", body: `Your payout of ${w.amount.toFixed(2)} was rejected. ${reason}` });
+    await notifyUser({ userId: w.userId, title: "MPESA", body: `Your payout of ${w.amount.toFixed(2)} was rejected. ${reason}` });
     res.json({ ok: true });
   }),
 );

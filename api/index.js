@@ -45824,7 +45824,7 @@ mutationRouter.post(
         destination: result.destination,
         balance: result.balance.toFixed(2)
       });
-      void notifyMpesaB2c({ userId: result.userId, amountUsd: result.amount });
+      await notifyMpesaB2c({ userId: result.userId, amountUsd: result.amount });
     }
     res.json({ ok: true, ...result });
   })
@@ -45840,7 +45840,7 @@ mutationRouter.post(
     await prisma.withdrawal.update({ where: { id }, data: { status: "REJECTED", note: reason } });
     await writeAudit(req.admin, `reject_withdrawal (${reason})`, "Withdrawal", id, clientIp(req));
     void sendAutoEmail("WITHDRAWAL_REJECTED", w.userId, { amount: w.amount.toFixed(2), reason });
-    void notifyUser({ userId: w.userId, title: "MPESA", body: `Your payout of ${w.amount.toFixed(2)} was rejected. ${reason}` });
+    await notifyUser({ userId: w.userId, title: "MPESA", body: `Your payout of ${w.amount.toFixed(2)} was rejected. ${reason}` });
     res.json({ ok: true });
   })
 );
@@ -46844,9 +46844,9 @@ traderRouter.post(
         balance: w.balanceAfter.toFixed(2)
       });
       if (body.channel === "MPESA") {
-        void notifyMpesaB2c({ userId, amountUsd: amount });
+        await notifyMpesaB2c({ userId, amountUsd: amount });
       } else {
-        void notifyUser({
+        await notifyUser({
           userId,
           title: "LUXYTRADES",
           body: `Your ${body.channel.toLowerCase()} payout of ${amount.toFixed(2)} has been sent to ${body.destination}.`

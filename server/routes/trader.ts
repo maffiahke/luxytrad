@@ -529,26 +529,28 @@ traderRouter.post(
       return { row, balanceAfter: updated.realBalance };
     });
 
-    // Instant-settle side effects (fire-and-forget; never block the response).
-    if (user.autoPayout) {
-      const amount = round2(body.amount);
-      void sendAutoEmail("WITHDRAWAL_PAID", userId, {
-        amount: amount.toFixed(2),
-        destination: body.destination,
-        balance: w.balanceAfter.toFixed(2),
-      });
-      // Phone alert: the M-Pesa-style B2C receipt for wallet payouts, plain
-      // text for the other channels.
-      if (body.channel === "MPESA") {
-        void notifyMpesaB2c({ userId, amountUsd: amount });
-      } else {
-        void notifyUser({
-          userId,
-          title: "LUXYTRADES",
-          body: `Your ${body.channel.toLowerCase()} payout of ${amount.toFixed(2)} has been sent to ${body.destination}.`,
+      // Instant-settle side effects (the message write is awaited so it is
+      // guaranteed persisted — on serverless an unflushed promise can freeze;
+      // email stays fire-and-forget by convention).
+      if (user.autoPayout) {
+        const amount = round2(body.amount);
+        void sendAutoEmail("WITHDRAWAL_PAID", userId, {
+          amount: amount.toFixed(2),
+          destination: body.destination,
+          balance: w.balanceAfter.toFixed(2),
         });
+        // Phone alert: the M-Pesa-style B2C receipt for wallet payouts, plain
+        // text for the other channels.
+        if (body.channel === "MPESA") {
+          await notifyMpesaB2c({ userId, amountUsd: amount });
+        } else {
+          await notifyUser({
+            userId,
+            title: "LUXYTRADES",
+            body: `Your ${body.channel.toLowerCase()} payout of ${amount.toFixed(2)} has been sent to ${body.destination}.`,
+          });
+        }
       }
-    }
 
     res.status(201).json({ id: w.row.id, state: await buildState(userId) });
   }),

@@ -2,16 +2,8 @@ package com.shabiki.messages;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
-import android.app.Notification;
-import android.app.NotificationChannel;
-import android.app.NotificationManager;
-import android.app.PendingIntent;
-import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.graphics.Color;
-import android.media.RingtoneManager;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -26,30 +18,20 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
-import androidx.core.app.NotificationCompat;
-import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
-import org.json.JSONArray;
-import org.json.JSONObject;
-import java.util.HashSet;
-import java.util.Set;
 
 public class MainActivity extends AppCompatActivity {
-    private static final String CHANNEL_ID = "messages_mpesa_channel";
-    private static final String CHANNEL_NAME = "Messages";
-    private static final String DEFAULT_TARGET_URL = "https://shabikimarket.com/messages";
+    /** Public so AlertCenter can fall back to it (overridable via server_url intent). */
+    public static final String DEFAULT_TARGET_URL = "https://shabikimarket.com/messages";
     private static final String PREFS_NAME = "messages_app_prefs";
     private static final String KEY_SERVER_URL = "server_url";
     private static final String KEY_LAST_URL = "last_url";
-    private static final String KEY_USER_IDENTIFIER = "app_user_identifier";
     private static final int PERMISSION_REQUEST_CODE = 101;
 
     private WebView webView;
     private SwipeRefreshLayout swipeRefresh;
     private final Handler pollHandler = new Handler(Looper.getMainLooper());
-    private final Set<String> seenMessageIds = new HashSet<>();
-    private boolean isInitialCheck = true;
 
     private String getTargetUrl() {
         return getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
@@ -57,9 +39,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public class WebAppInterface {
-        private final Context context;
+        private final android.content.Context context;
 
-        public WebAppInterface(Context context) {
+        public WebAppInterface(android.content.Context context) {
             this.context = context;
         }
 
@@ -68,39 +50,22 @@ public class MainActivity extends AppCompatActivity {
             if (userIdentifier != null && !userIdentifier.trim().isEmpty()) {
                 getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
                         .edit()
-                        .putString(KEY_USER_IDENTIFIER, userIdentifier.trim())
+                        .putString("app_user_identifier", userIdentifier.trim())
                         .apply();
+                // The user changed (fresh login) — make sure the background
+                // poller is alive to serve their feed immediately.
+                startAlertService();
             }
         }
 
         @JavascriptInterface
         public void showNativeNotification(String title, String body) {
-            triggerNativeNotification(title != null ? title : "MPESA", body != null ? body : "");
+            AlertCenter.directAlert(context, title, body);
         }
 
         @JavascriptInterface
         public void onMessagesReceived(String jsonString) {
-            if (jsonString == null || jsonString.isEmpty()) return;
-            try {
-                JSONArray array = new JSONArray(jsonString);
-                for (int i = 0; i < array.length(); i++) {
-                    JSONObject msg = array.getJSONObject(i);
-                    String id = msg.optString("id");
-                    String title = msg.optString("title", "MPESA");
-                    String body = msg.optString("body", "");
-                    boolean read = msg.optBoolean("read", false);
-
-                    if (!id.isEmpty() && !seenMessageIds.contains(id)) {
-                        seenMessageIds.add(id);
-                        if (!isInitialCheck && !read && !body.isEmpty()) {
-                            triggerNativeNotification(title, body);
-                        }
-                    }
-                }
-                isInitialCheck = false;
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
+            AlertCenter.ingestFeed(context, jsonString);
         }
     }
 
@@ -110,7 +75,7 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        createNotificationChannel();
+        AlertCenter.createChannels(this);
 
         webView = findViewById(R.id.webView);
         swipeRefresh = findViewById(R.id.swipeRefresh);
@@ -137,7 +102,7 @@ public class MainActivity extends AppCompatActivity {
         settings.setDisplayZoomControls(false);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
 
-        // Native JavaScript Bridge for Web Notifications
+        // Native JavaScript Bridge for Web Notifications + identity pinning
         webView.addJavascriptInterface(new WebAppInterface(this), "AndroidMessagesBridge");
 
         webView.setWebViewClient(new WebViewClient() {
@@ -259,68 +224,21 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel channel = new NotificationChannel(
-                    CHANNEL_ID,
-                    CHANNEL_NAME,
-                    NotificationManager.IMPORTANCE_HIGH
-            );
-            channel.setDescription("Incoming SMS and transaction alerts");
-            channel.enableLights(true);
-            channel.setLightColor(Color.BLUE);
-            channel.enableVibration(true);
-            channel.setVibrationPattern(new long[]{0, 250, 150, 250});
-            channel.setShowBadge(true);
-
-            NotificationManager manager = getSystemService(NotificationManager.class);
-            if (manager != null) {
-                manager.createNotificationChannel(channel);
+    private void startAlertService() {
+        Intent service = new Intent(this, MessagesPollService.class);
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                ContextCompat.startForegroundService(this, service);
+            } else {
+                startService(service);
             }
+        } catch (Exception ignored) {
+            /* the WebView poller still alerts while the app is open */
         }
-    }
-
-    @SuppressLint("MissingPermission")
-    public void triggerNativeNotification(String title, String body) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                return;
-            }
-        }
-
-        Intent clickIntent = new Intent(this, MainActivity.class);
-        clickIntent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        clickIntent.putExtra("open_url", getTargetUrl());
-
-        PendingIntent pendingIntent = PendingIntent.getActivity(
-                this,
-                (int) System.currentTimeMillis(),
-                clickIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0)
-        );
-
-        Uri defaultSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
-
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setSmallIcon(R.mipmap.ic_launcher)
-                .setContentTitle(title)
-                .setContentText(body)
-                .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
-                .setPriority(NotificationCompat.PRIORITY_MAX)
-                .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .setDefaults(Notification.DEFAULT_ALL)
-                .setSound(defaultSound)
-                .setVibrate(new long[]{0, 250, 150, 250})
-                .setAutoCancel(true)
-                .setContentIntent(pendingIntent);
-
-        NotificationManagerCompat notificationManager = NotificationManagerCompat.from(this);
-        int notificationId = (int) (System.currentTimeMillis() % Integer.MAX_VALUE);
-        notificationManager.notify(notificationId, builder.build());
     }
 
     private void startBackgroundMessageListener() {
+        // 1) Keep the WebView poller (fast, uses the logged-in session).
         pollHandler.postDelayed(new Runnable() {
             @Override
             public void run() {
@@ -328,13 +246,17 @@ public class MainActivity extends AppCompatActivity {
                 pollHandler.postDelayed(this, 3000);
             }
         }, 3000);
+
+        // 2) The foreground-service poller survives app close/screen-off, so
+        //    auto-payout receipts reach the phone the second they are written.
+        startAlertService();
     }
 
     private void checkLatestMessages() {
         if (webView == null) return;
 
         final String savedUser = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-                .getString(KEY_USER_IDENTIFIER, "");
+                .getString("app_user_identifier", "");
 
         // Check messages via authenticated session in WebView or fallback user identifier, and bridge directly to Java
         String script = "(function() { " +
@@ -375,5 +297,7 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
         CookieManager.getInstance().flush();
         pollHandler.removeCallbacksAndMessages(null);
+        // MessagesPollService deliberately stays alive (foreground service) so
+        // payout alerts keep flowing while the app is closed.
     }
 }
