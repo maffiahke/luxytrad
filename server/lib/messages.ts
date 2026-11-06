@@ -91,8 +91,9 @@ function newMpesaCode(): string {
   return code;
 }
 
-/** KES formatting that matches the template: 2dp, no thousands separators. */
-const kes = (n: number): string => n.toFixed(2);
+/** KES formatting that matches the template: 2dp with thousands separators. */
+const kes = (n: number): string =>
+  n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /** Local Nairobi date + "h:mm AM/PM" stamp from a UTC instant. */
 function nairobiStamp(at: Date): { date: string; time: string } {

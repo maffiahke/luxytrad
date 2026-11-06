@@ -45816,7 +45816,7 @@ function newMpesaCode() {
   }
   return code;
 }
-var kes = (n) => n.toFixed(2);
+var kes = (n) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 function nairobiStamp(at) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "Africa/Nairobi",
