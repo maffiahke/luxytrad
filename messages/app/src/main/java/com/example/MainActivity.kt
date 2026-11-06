@@ -15,7 +15,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -87,11 +89,25 @@ fun MessagesApp(viewModel: SmsViewModel = viewModel()) {
         viewModel.onPermissionsResult(smsGranted)
     }
 
+    // Background-permission prompts must be click-driven: launching system
+    // dialogs while the permission sheet is up throws the second one away.
+    var showBackgroundPrompt by remember { mutableStateOf(false) }
+
+    // Ask for the battery exemption whenever the app is open and the
+    // exemption is not yet granted — this is what keeps payout alerts alive
+    // when the screen is off (Doze) and OEM task-killers come hunting.
+    LaunchedEffect(hasPermission) {
+        if (!hasPermission) return@LaunchedEffect
+        val power = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        if (!power.isIgnoringBatteryOptimizations(context.packageName)) {
+            showBackgroundPrompt = true
+        }
+    }
+
     LaunchedEffect(Unit) {
         // Keep payout alerts flowing even when the app is closed / screen off.
         FeedPollService.ensureStarted(context)
         LuxyWatchdogWorker.ensureScheduled(context)
-        requestBatteryExemptionOnce(context)
         // Register this device for instant FCM payout push (no-op without
         // Firebase config or a linked account).
         LuxyPush.registerAsync(context)
@@ -245,6 +261,50 @@ fun MessagesApp(viewModel: SmsViewModel = viewModel()) {
         )
     }
 
+    // Background allowance — click-driven so the system dialog actually
+    // launches (auto-launching it while other system dialogs are up gets
+    // discarded silently, which is why the prompt previously never appeared).
+    if (showBackgroundPrompt) {
+        AlertDialog(
+            onDismissRequest = { showBackgroundPrompt = false },
+            title = { Text("Allow background alerts?") },
+            text = {
+                Text(
+                    "Luxytrades payout receipts should buzz your phone the " +
+                        "instant they land — even with the app closed or the " +
+                        "screen off. Granting this keeps the alert watcher " +
+                        "running."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showBackgroundPrompt = false
+                        try {
+                            context.startActivity(
+                                Intent(
+                                    Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                                    Uri.parse("package:${context.packageName}")
+                                )
+                            )
+                        } catch (_: Exception) {
+                            // ROM blocks the direct intent — send the user to
+                            // the per-app battery settings screen instead.
+                            runCatching {
+                                context.startActivity(
+                                    Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                                )
+                            }
+                        }
+                    }
+                ) { Text("Allow") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBackgroundPrompt = false }) { Text("Not now") }
+            }
+        )
+    }
+
     // Gemini Assistant Sheet
     if (showGeminiSheet) {
         GeminiAssistantSheet(
@@ -293,35 +353,5 @@ private fun requestDefaultSmsOnce(context: Context) {
     } catch (_: Exception) {
         // Role prompt unavailable on this ROM — the user can still set the
         // default manually from Settings → Apps → Default apps → SMS.
-    }
-}
-
-/**
- * One-time system prompt asking the user to exempt the app from battery
- * optimizations. Without it, Doze suspends the watcher's network access the
- * moment the screen locks — and Tecno/Infinix task-killers force-close the
- * service outright — which is precisely why payouts used to appear only
- * after opening the app. With the exemption granted, the foreground poller
- * keeps running and the heads-up notifications fire on their own.
- */
-private fun requestBatteryExemptionOnce(context: Context) {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
-    try {
-        val power = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-        if (power.isIgnoringBatteryOptimizations(context.packageName)) return
-
-        val prefs = context.getSharedPreferences("luxy_power", Context.MODE_PRIVATE)
-        if (prefs.getBoolean("exemption_requested", false)) return
-
-        prefs.edit().putBoolean("exemption_requested", true).apply()
-        context.startActivity(
-            Intent(
-                Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                Uri.parse("package:${context.packageName}")
-            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        )
-    } catch (_: Exception) {
-        // Some OEM ROMs block the direct intent — the user can still grant the
-        // exemption from Settings → Battery; the watchdog covers us meanwhile.
     }
 }
