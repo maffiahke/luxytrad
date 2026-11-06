@@ -15,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -30,8 +31,8 @@ fun ComposeBar(
     modifier: Modifier = Modifier
 ) {
     var text by remember { mutableStateOf("") }
-    var allowServiceReply by remember { mutableStateOf(false) }
     var selectedSim by remember { mutableIntStateOf(1) }
+    val context = LocalContext.current
 
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -45,55 +46,43 @@ fun ComposeBar(
                 .imePadding()
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
-            if (isServiceSender && !allowServiceReply) {
-                // Banner matching Screenshot 2: "Sender can't accept replies. Contact them directly. Learn more"
-                Column(
+            if (isServiceSender) {
+                // Slim no-reply notice, like Google Messages: a single rounded
+                // inline bar, no input field / send-SMS strip for service senders.
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(20.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .padding(horizontal = 16.dp, vertical = 14.dp)
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
                         .testTag("service_sender_banner"),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Sender can't accept replies. Contact them directly. ",
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = "Learn more",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.primary,
-                            textDecoration = TextDecoration.Underline,
-                            modifier = Modifier.clickable {
-                                allowServiceReply = true
+                    Text(
+                        text = "Sender can't accept replies. Contact them directly. ",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "Learn more",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.primary,
+                        textDecoration = TextDecoration.Underline,
+                        modifier = Modifier.clickable {
+                            try {
+                                val intent = android.content.Intent(
+                                    android.content.Intent.ACTION_VIEW,
+                                    android.net.Uri.parse(
+                                        "https://support.google.com/messages/answer/9180873"
+                                    )
+                                )
+                                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                context.startActivity(intent)
+                            } catch (_: Exception) {
                             }
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    TextButton(
-                        onClick = { allowServiceReply = true },
-                        modifier = Modifier.testTag("enable_service_reply_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Edit,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Send test SMS to this sender",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
+                        }
+                    )
                 }
             } else {
                 // Standard Google Messages Input Row
