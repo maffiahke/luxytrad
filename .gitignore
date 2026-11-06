@@ -28,6 +28,13 @@ android/.gradle/
 android/local.properties
 android/.idea/
 
+# Native SMS app (messages/) build outputs & local config
+messages/app/build/
+messages/.gradle/
+messages/build/
+messages/local.properties
+messages/.idea/
+
 # NOTE: api/index.js (the esbuild bundle) is intentionally COMMITTED, not ignored.
 # Vercel discovers /api functions from the source tree before buildCommand runs, so
 # the file must exist in git. `npm run build:api` regenerates it for freshness at deploy.

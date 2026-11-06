@@ -1,0 +1,6 @@
+{
+  "name": "Messages",
+  "description": "An authentic Google Messages SMS app with rich conversation threads, message search, start chat, delivery details, and smart SMS categorization.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
