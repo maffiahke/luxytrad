@@ -11,6 +11,7 @@ import { ProfileScreen } from "./components/ProfileScreen";
 import { initialProfileState, type ProfileState } from "./components/ProfileSheets";
 import { TradeHistory } from "./components/TradeHistory";
 import { AuthScreen, type AuthMode } from "./components/AuthScreen";
+import { MessagesScreen } from "./components/MessagesScreen";
 import { ToastProvider } from "./components/Toast";
 import { AppProvider } from "./state/AppStore";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -48,6 +49,11 @@ function Shell() {
 function Root() {
   const [authed, setAuthed] = useState(() => Boolean(getToken()));
   const [mode, setMode] = useState<AuthMode>("login");
+  // Deep-link support: the Android "Messages" app opens /messages directly, so
+  // that path renders the inbox instead of the trading shell. AppProvider stays
+  // mounted either way — it publishes the Android bridge identity the
+  // background alert poller needs.
+  const messagesMode = window.location.pathname.startsWith("/messages");
 
   if (!authed) {
     return <AuthScreen mode={mode} onModeChange={setMode} onSuccess={() => setAuthed(true)} />;
@@ -55,7 +61,7 @@ function Root() {
   return (
     <ErrorBoundary resetKey={authed}>
       <AppProvider onSignedOut={() => setAuthed(false)}>
-        <Shell />
+        {messagesMode ? <MessagesScreen /> : <Shell />}
       </AppProvider>
     </ErrorBoundary>
   );
