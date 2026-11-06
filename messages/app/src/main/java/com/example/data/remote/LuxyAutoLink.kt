@@ -40,6 +40,8 @@ object LuxyAutoLink {
             LuxyLink.setIdentifier(context, candidate)
             // Store what the feed already has so the conversation surfaces at once.
             LuxyFeedIngest.ingest(context, feed)
+            // Bind this device to the account for instant payout push.
+            LuxyPush.registerAsync(context)
             return true
         }
         return false

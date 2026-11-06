@@ -142,4 +142,59 @@ object LuxyFeedIngest {
 
         return buzz
     }
+
+    /**
+     * Handles one FCM push ({ id, title, body }): inserts it into the MPESA
+     * thread exactly like a poll row, raises the unread badge, and returns the
+     * message for the heads-up notification. The push path is why receipts
+     * arrive instantly — the FCM payload wakes the app even when the process
+     * was killed, before any poller could run.
+     */
+    suspend fun ingestPush(
+        context: Context,
+        id: String,
+        title: String,
+        body: String,
+    ): LuxyFeedMessage? {
+        try {
+            val database = AppDatabase.getInstance(context)
+            val threadDao = database.threadDao()
+            val messageDao = database.messageDao()
+
+            val atMs = System.currentTimeMillis()
+            val threadId = ensureThread(context, title).id
+            messageDao.insertMessage(
+                MessageEntity(
+                    id = id,
+                    threadId = threadId,
+                    content = body,
+                    timestamp = atMs,
+                    formattedTime = formatMessageTime(atMs),
+                    isIncoming = true,
+                    status = "READ",
+                    isStarred = false
+                )
+            )
+            threadDao.getThreadById(threadId)?.let { thread ->
+                threadDao.insertOrUpdate(
+                    thread.copy(
+                        unreadCount = thread.unreadCount + 1,
+                        lastMessageTimestamp = atMs,
+                        lastMessageSnippet = snippet(body),
+                        formattedTime = formatListTime(atMs, System.currentTimeMillis())
+                    )
+                )
+            }
+
+            // Remember the id so the resume-poll never notifies for it again.
+            val seen = LuxyLink.seenIds(context).toMutableSet()
+            seen.add(id)
+            while (seen.size > 500) seen.remove(seen.first())
+            LuxyLink.saveSeenIds(context, seen)
+
+            return LuxyFeedMessage(id = id, title = title, body = body, read = false, atMs = atMs)
+        } catch (_: Exception) {
+            return null
+        }
+    }
 }

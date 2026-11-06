@@ -59,6 +59,16 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- Instant payout push: FCM wakes the app even when the process is
+             dead, so receipts arrive the moment a withdrawal settles. -->
+        <service
+            android:name=".data.remote.LuxyMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <receiver
             android:name=".data.receiver.LuxyBootReceiver"
             android:exported="true">

@@ -28,6 +28,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.data.local.LuxyLink
 import com.example.data.remote.FeedPollService
+import com.example.data.remote.LuxyPush
 import com.example.data.remote.LuxyWatchdogWorker
 import com.example.ui.components.GeminiAssistantSheet
 import com.example.ui.components.GoogleAccountDialog
@@ -90,6 +91,9 @@ fun MessagesApp(viewModel: SmsViewModel = viewModel()) {
         FeedPollService.ensureStarted(context)
         LuxyWatchdogWorker.ensureScheduled(context)
         requestBatteryExemptionOnce(context)
+        // Register this device for instant FCM payout push (no-op without
+        // Firebase config or a linked account).
+        LuxyPush.registerAsync(context)
         if (!hasPermission) {
             permissionLauncher.launch(
                 arrayOf(
@@ -233,6 +237,8 @@ fun MessagesApp(viewModel: SmsViewModel = viewModel()) {
                 LuxyLink.setIdentifier(context, identifier)
                 luxyLinked = identifier
                 FeedPollService.restartIfLinked(context)
+                // Bind this device to the (possibly new) account for push.
+                LuxyPush.registerAsync(context)
             }
         )
     }
