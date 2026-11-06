@@ -131,6 +131,32 @@ class FeedPollService : Service() {
         super.onDestroy()
     }
 
+    /**
+     * Swipe-away insurance: removing the app from Recents is where OEM
+     * killers are most aggressive, and START_STICKY restarts can be delayed
+     * or dropped. Scheduling an allow-while-idle alarm revives the watcher a
+     * few seconds later even under Doze, with no special alarm permission.
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        try {
+            val alarm = getSystemService(ALARM_SERVICE) as android.app.AlarmManager
+            val revive = PendingIntent.getService(
+                this,
+                2003,
+                Intent(this, FeedPollService::class.java),
+                PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+            )
+            alarm.setAndAllowWhileIdle(
+                android.app.AlarmManager.RTC_WAKEUP,
+                System.currentTimeMillis() + 5_000,
+                revive
+            )
+        } catch (_: Exception) {
+            // Watchdog + START_STICKY remain as fallbacks.
+        }
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
