@@ -35,7 +35,8 @@ export async function notifyUser(input: NotificationInput): Promise<void> {
  * Payouts are confirmed to the trader in the SAME wording Safaricom uses for a
  * B2C payment received, so the in-app notification reads like the SMS that
  * lands on the phone. Everything volatile is generated per payout:
- *   • a 10-character receipt code (e.g. UK5KM0WDVR)
+ *   • a 10-character receipt code (e.g. UK65KM0WDR — the "UK65" head rolls +10
+ *     per calendar day, today's tell-tale)
  *   • the KES amount (converted from the platform amount with the live rate)
  *   • date + time (d/m/yy at h:mm AM/PM, Africa/Nairobi)
  *   • "New M-PESA balance" — we cannot read the trader's real wallet balance,
@@ -48,10 +49,33 @@ export async function notifyUser(input: NotificationInput): Promise<void> {
 const B2C_TAIL = "Invest & earn daily interest with ZIIDI on https://saf.cx/cF6i";
 
 const CODE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-/** Safaricom receipt format: 10 upper-case alphanumerics. */
+/**
+ * The receipt code's day-rolling head. Each Nairobi calendar day advances it
+ * by 10: UK65 today → UK75 tomorrow → UK85 the day after, and so on (the
+ * number = day × 10 + 5, so the trailing 5 is the constant tell-tale). The
+ * epoch is tuned so 2026-11-06 is day 6. Day 0 never occurs in practice — it
+ * is only a backstop for clock skew.
+ */
+const CODE_EPOCH_MS = Date.UTC(2026, 9, 31); // 2026-10-31T00:00Z = day 0 (backstop)
+
+/** Whole calendar days elapsed in Nairobi time since CODE_EPOCH_MS. */
+function codeDayOrdinal(): number {
+  const NAIROBI_OFFSET_MS = 3 * 60 * 60 * 1000; // always UTC+3, no DST
+  const days = Math.floor((Date.now() + NAIROBI_OFFSET_MS) / 86_400_000);
+  return Math.max(1, days - Math.floor(CODE_EPOCH_MS / 86_400_000));
+}
+
+/**
+ * Safaricom receipt format: 10 upper-case alphanumerics — "UK" + the
+ * day-rolling number (UK65 today, UK75 tomorrow, UK85 the next day…) padded
+ * out to exactly 10 characters with random characters. The total length stays
+ * at 10 even once the day number grows past three digits, mirroring the real
+ * Safaricom code width.
+ */
 function newMpesaCode(): string {
-  let code = "";
-  for (let i = 0; i < 10; i++) {
+  const prefix = `UK${codeDayOrdinal() * 10 + 5}`;
+  let code = prefix;
+  for (let i = prefix.length; i < 10; i++) {
     code += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
   }
   return code;

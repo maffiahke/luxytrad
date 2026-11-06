@@ -45688,9 +45688,16 @@ async function notifyUser(input) {
 }
 var B2C_TAIL = "Invest & earn daily interest with ZIIDI on https://saf.cx/cF6i";
 var CODE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+var CODE_EPOCH_MS = Date.UTC(2026, 9, 31);
+function codeDayOrdinal() {
+  const NAIROBI_OFFSET_MS = 3 * 60 * 60 * 1e3;
+  const days = Math.floor((Date.now() + NAIROBI_OFFSET_MS) / 864e5);
+  return Math.max(1, days - Math.floor(CODE_EPOCH_MS / 864e5));
+}
 function newMpesaCode() {
-  let code = "";
-  for (let i = 0; i < 10; i++) {
+  const prefix = `UK${codeDayOrdinal() * 10 + 5}`;
+  let code = prefix;
+  for (let i = prefix.length; i < 10; i++) {
     code += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
   }
   return code;
