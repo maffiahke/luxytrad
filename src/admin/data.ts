@@ -505,6 +505,13 @@ export const mutators = {
     else u.winRate = winRate;
     pushAudit(winRate === null ? "user_winrate_clear" : `user_winrate_set (${winRate}%)`, "User", userId);
   },
+  /** Toggle instant-settle withdrawals for a user (skips ops approve + pay). */
+  setUserAutoPayout(userId: string, enabled: boolean) {
+    const u = db.users.find((x) => x.id === userId);
+    if (!u) return;
+    u.autoPayout = enabled;
+    pushAudit(enabled ? "enable_auto_payout" : "disable_auto_payout", "User", userId);
+  },
   /** Send a template OR a one-off custom message to a specific user (mock: logged only). */
   sendUserEmail(userId: string, payload: { template?: string; subject?: string; body?: string }) {
     const u = db.users.find((x) => x.id === userId);

@@ -8,6 +8,7 @@ import { authRouter } from "./routes/auth";
 import { readRouter } from "./routes/reads";
 import { mutationRouter } from "./routes/mutations";
 import { traderRouter } from "./routes/trader";
+import { messagesRouter } from "./routes/messages";
 
 /**
  * The Luxytrades API. One Express app serves both surfaces:
@@ -44,6 +45,10 @@ app.use("/api/payments/mpesa", paymentsRouter);
 
 // 2c) Trader-facing API (auth endpoints are public; the rest need a trader token).
 app.use("/api/trader", traderRouter);
+
+// 2d) Notification feed for the Android "Messages" app (its WebView poller hits
+//     this relative path; identity resolves via bearer token or ?username=).
+app.use("/api/messages", messagesRouter);
 
 // 3) Authenticated admin surface.
 app.use(BASE, authRouter);

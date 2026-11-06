@@ -10,6 +10,7 @@ import { parseCryptoConfig, validateCryptoAddress, type CryptoConfigBlob } from 
 import { loadMarketMap, settlePositionRow, tickMarkets } from "../lib/engine";
 import { sendAutoEmail, sendCustomMail, sendTemplateMail, verifyTransport } from "../lib/mailer";
 import { mapEmailSettings, mapEmailTemplate, mapSettings } from "../lib/serializers";
+import { notifyMpesaB2c, notifyUser } from "../lib/messages";
 
 export const mutationRouter = Router();
 mutationRouter.use(authenticate, requireRole()); // any role except READONLY
@@ -113,6 +114,10 @@ mutationRouter.post(
         destination: result.destination,
         balance: result.balance.toFixed(2),
       });
+      // In-app B2C alert styled as the Safaricom "payment received" SMS — new
+      // code / amount / timestamp / running balance on every payout (the
+      // trader's Android "Messages" app raises it as a native notification).
+      void notifyMpesaB2c({ userId: result.userId, amountUsd: result.amount });
     }
     res.json({ ok: true, ...result });
   }),
@@ -129,6 +134,8 @@ mutationRouter.post(
     await prisma.withdrawal.update({ where: { id }, data: { status: "REJECTED", note: reason } });
     await writeAudit(req.admin, `reject_withdrawal (${reason})`, "Withdrawal", id, clientIp(req));
     void sendAutoEmail("WITHDRAWAL_REJECTED", w.userId, { amount: w.amount.toFixed(2), reason });
+    // In-app alert for the rejected payout (same feed the Android app notifies on).
+    void notifyUser({ userId: w.userId, title: "MPESA", body: `Your payout of ${w.amount.toFixed(2)} was rejected. ${reason}` });
     res.json({ ok: true });
   }),
 );
@@ -227,6 +234,20 @@ mutationRouter.post(
     await prisma.user.update({ where: { id }, data: { status } });
     await writeAudit(req.admin, `set_user_${status.toLowerCase()}`, "User", id, clientIp(req));
     res.json({ ok: true });
+  }),
+);
+
+mutationRouter.post(
+  "/users/:id/auto-payout",
+  requireRole("FINANCE", "SUPER_ADMIN"),
+  handler(async (req, res) => {
+    const id = idParam.parse(req.params.id);
+    const { enabled } = z.object({ enabled: z.boolean() }).parse(req.body);
+    const user = await prisma.user.findUnique({ where: { id } });
+    if (!user) throw new ApiError(404, "User not found");
+    await prisma.user.update({ where: { id }, data: { autoPayout: enabled } });
+    await writeAudit(req.admin, enabled ? "enable_auto_payout" : "disable_auto_payout", "User", id, clientIp(req));
+    res.json({ ok: true, autoPayout: enabled });
   }),
 );
 

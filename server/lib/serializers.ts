@@ -46,6 +46,7 @@ export function mapUser(r: any): User {
     realBalance: r.realBalance,
     demoBalance: r.demoBalance,
     winRate: r.winRate ?? undefined,
+    autoPayout: r.autoPayout ?? false,
   };
 }
 

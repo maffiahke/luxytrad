@@ -185,6 +185,42 @@ const META_BY_NAME: Record<string, { id: string; f1: string; f2: string }> = Obj
 
 const marketId = (name: string, code: string) => META_BY_NAME[name]?.id ?? code.toLowerCase();
 
+/* --------------------- Android "Messages" app handshake --------------------- */
+/**
+ * The Android Messages shell polls GET /api/messages?username=<identifier> from
+ * inside its WebView (it cannot replay bearer tokens). We publish the current
+ * trader's identifier (username → phone digits → email, same order the login
+ * route resolves) to localStorage, and pin it natively through the bridge when
+ * the page runs inside that app. Cleared on sign-out so a shared device never
+ * alerts the previous user's phone.
+ */
+const ANDROID_IDENTIFIER_KEY = "messagesAppUsername";
+
+function publishAndroidIdentifier(user: Pick<TraderUser, "username" | "phone" | "email">): void {
+  const id = (user.username || user.phone || user.email || "").trim();
+  if (!id) return;
+  try {
+    localStorage.setItem(ANDROID_IDENTIFIER_KEY, id);
+  } catch {
+    /* ignore */
+  }
+  try {
+    const bridge = (window as unknown as { AndroidMessagesBridge?: { setAppUser?: (id: string) => void } })
+      .AndroidMessagesBridge;
+    bridge?.setAppUser?.(id);
+  } catch {
+    /* not inside the Android shell */
+  }
+}
+
+function clearAndroidIdentifier(): void {
+  try {
+    localStorage.removeItem(ANDROID_IDENTIFIER_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 function hhmm(iso?: string) {
   if (!iso) return "";
   const d = new Date(iso);
@@ -262,6 +298,7 @@ export function AppProvider({ children, onSignedOut }: { children: ReactNode; on
     try {
       const s = await api.getState();
       setSnap(s);
+      publishAndroidIdentifier(s.user);
       setLoading(false);
       // make sure a pair is selected and initialised from the live catalogue
       setPairId((cur) => {
@@ -272,6 +309,7 @@ export function AppProvider({ children, onSignedOut }: { children: ReactNode; on
       if (err instanceof ApiRequestError && err.status === 401 && !signedOut.current) {
         signedOut.current = true;
         clearToken();
+        clearAndroidIdentifier();
         onSignedOut();
         return;
       }
@@ -615,6 +653,7 @@ export function AppProvider({ children, onSignedOut }: { children: ReactNode; on
   const logout = () => {
     signedOut.current = true;
     clearToken();
+    clearAndroidIdentifier();
     onSignedOut();
   };
 

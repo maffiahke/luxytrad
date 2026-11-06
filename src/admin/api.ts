@@ -343,6 +343,7 @@ export const api = {
         adjustBalance: [`/users/${id}/adjust-balance`, { delta: b, note: c }],
         setUserStatus: [`/users/${id}/status`, { status: b }],
         setUserWinRate: [`/users/${id}/win-rate`, { winRate: b ?? null }],
+        setUserAutoPayout: [`/users/${id}/auto-payout`, { enabled: b }],
         approveKyc: [`/kyc/${id}/approve`, undefined],
         rejectKyc: [`/kyc/${id}/reject`, { reason: b }],
         toggleGateway: [`/gateways/${id}/toggle`, undefined],

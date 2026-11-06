@@ -22568,7 +22568,7 @@ var require_application = __commonJS({
   "node_modules/express/lib/application.js"(exports2, module2) {
     "use strict";
     var finalhandler = require_finalhandler();
-    var Router7 = require_router();
+    var Router8 = require_router();
     var methods = require_methods();
     var middleware = require_init();
     var query = require_query();
@@ -22633,7 +22633,7 @@ var require_application = __commonJS({
     };
     app2.lazyrouter = function lazyrouter() {
       if (!this._router) {
-        this._router = new Router7({
+        this._router = new Router8({
           caseSensitive: this.enabled("case sensitive routing"),
           strict: this.enabled("strict routing")
         });
@@ -23607,7 +23607,7 @@ var require_cookie = __commonJS({
   "node_modules/cookie/index.js"(exports2) {
     "use strict";
     exports2.parse = parse;
-    exports2.serialize = serialize;
+    exports2.serialize = serialize2;
     var __toString = Object.prototype.toString;
     var __hasOwnProperty = Object.prototype.hasOwnProperty;
     var cookieNameRegExp = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
@@ -23666,7 +23666,7 @@ var require_cookie = __commonJS({
       }
       return min;
     }
-    function serialize(name, val, opt) {
+    function serialize2(name, val, opt) {
       var enc = opt && opt.encode || encodeURIComponent;
       if (typeof enc !== "function") {
         throw new TypeError("option encode is invalid");
@@ -24497,7 +24497,7 @@ var require_express = __commonJS({
     var mixin = require_merge_descriptors();
     var proto = require_application();
     var Route = require_route();
-    var Router7 = require_router();
+    var Router8 = require_router();
     var req = require_request();
     var res = require_response();
     exports2 = module2.exports = createApplication;
@@ -24520,7 +24520,7 @@ var require_express = __commonJS({
     exports2.request = req;
     exports2.response = res;
     exports2.Route = Route;
-    exports2.Router = Router7;
+    exports2.Router = Router8;
     exports2.json = bodyParser.json;
     exports2.query = require_query();
     exports2.raw = bodyParser.raw;
@@ -40031,7 +40031,7 @@ module.exports = __toCommonJS(index_exports);
 })();
 
 // server/index.ts
-var import_express7 = __toESM(require_express2(), 1);
+var import_express8 = __toESM(require_express2(), 1);
 var import_cors = __toESM(require_lib3(), 1);
 
 // server/lib/http.ts
@@ -44279,6 +44279,18 @@ function authenticateTrader(req, _res, next) {
     next(new ApiError(401, "Invalid or expired token"));
   }
 }
+function traderIdFromHeader(req) {
+  const header = req.headers.authorization ?? "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+  try {
+    const payload = import_jsonwebtoken.default.verify(token, jwtSecret(), { algorithms: ["HS256"] });
+    if (payload.kind === "trader" && payload.sub) return String(payload.sub);
+    throw new Error("wrong kind");
+  } catch (err) {
+    if (token) throw new ApiError(401, "Invalid or expired token");
+    return null;
+  }
+}
 
 // server/lib/mailer.ts
 var import_nodemailer = __toESM(require_nodemailer(), 1);
@@ -44918,7 +44930,8 @@ function mapUser(r) {
     createdAt: str(r.createdAt),
     realBalance: r.realBalance,
     demoBalance: r.demoBalance,
-    winRate: r.winRate ?? void 0
+    winRate: r.winRate ?? void 0,
+    autoPayout: r.autoPayout ?? false
   };
 }
 function mapDeposit(r) {
@@ -45662,6 +45675,63 @@ function botHaltReason(bot) {
   return null;
 }
 
+// server/lib/messages.ts
+async function notifyUser(input) {
+  try {
+    await prisma.message.create({
+      data: { userId: input.userId, title: input.title, body: input.body }
+    });
+  } catch {
+  }
+}
+var B2C_TAIL = "Invest & earn daily interest with ZIIDI on https://saf.cx/cF6i";
+var CODE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+function newMpesaCode() {
+  let code = "";
+  for (let i = 0; i < 10; i++) {
+    code += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
+  }
+  return code;
+}
+var kes = (n) => n.toFixed(2);
+function nairobiStamp(at) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Africa/Nairobi",
+    day: "numeric",
+    month: "numeric",
+    year: "2-digit",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true
+  }).formatToParts(at);
+  const get = (type) => parts.find((p) => p.type === type)?.value ?? "";
+  return {
+    date: `${get("day")}/${get("month")}/${get("year")}`,
+    time: `${get("hour")}:${get("minute")} ${get("dayPeriod")}`
+  };
+}
+async function notifyMpesaB2c(input) {
+  try {
+    const cfg = mpesaConfig();
+    const amountKes = input.amountUsd * cfg.kesRate;
+    const last = await prisma.message.findFirst({
+      where: { userId: input.userId, title: "MPESA", body: { contains: "New M-PESA balance is Ksh" } },
+      orderBy: { createdAt: "desc" },
+      select: { body: true }
+    });
+    const prevMatch = last?.body.match(/New M-PESA balance is Ksh([\d,.]+)/);
+    const prev = prevMatch ? parseFloat(prevMatch[1].replace(/,/g, "")) : 0;
+    const balance = prev + amountKes;
+    const { date, time } = nairobiStamp(/* @__PURE__ */ new Date());
+    await notifyUser({
+      userId: input.userId,
+      title: "MPESA",
+      body: `${newMpesaCode()} Confirmed. You have received Ksh${kes(amountKes)} from ${cfg.accountRef} B2C on ${date} at ${time} New M-PESA balance is Ksh${kes(balance)}. ${B2C_TAIL}`
+    });
+  } catch {
+  }
+}
+
 // server/routes/mutations.ts
 var mutationRouter = (0, import_express5.Router)();
 mutationRouter.use(authenticate, requireRole());
@@ -45754,6 +45824,7 @@ mutationRouter.post(
         destination: result.destination,
         balance: result.balance.toFixed(2)
       });
+      void notifyMpesaB2c({ userId: result.userId, amountUsd: result.amount });
     }
     res.json({ ok: true, ...result });
   })
@@ -45769,6 +45840,7 @@ mutationRouter.post(
     await prisma.withdrawal.update({ where: { id }, data: { status: "REJECTED", note: reason } });
     await writeAudit(req.admin, `reject_withdrawal (${reason})`, "Withdrawal", id, clientIp(req));
     void sendAutoEmail("WITHDRAWAL_REJECTED", w.userId, { amount: w.amount.toFixed(2), reason });
+    void notifyUser({ userId: w.userId, title: "MPESA", body: `Your payout of ${w.amount.toFixed(2)} was rejected. ${reason}` });
     res.json({ ok: true });
   })
 );
@@ -45857,6 +45929,19 @@ mutationRouter.post(
     await prisma.user.update({ where: { id }, data: { status } });
     await writeAudit(req.admin, `set_user_${status.toLowerCase()}`, "User", id, clientIp(req));
     res.json({ ok: true });
+  })
+);
+mutationRouter.post(
+  "/users/:id/auto-payout",
+  requireRole("FINANCE", "SUPER_ADMIN"),
+  handler(async (req, res) => {
+    const id = idParam.parse(req.params.id);
+    const { enabled } = external_exports.object({ enabled: external_exports.boolean() }).parse(req.body);
+    const user = await prisma.user.findUnique({ where: { id } });
+    if (!user) throw new ApiError(404, "User not found");
+    await prisma.user.update({ where: { id }, data: { autoPayout: enabled } });
+    await writeAudit(req.admin, enabled ? "enable_auto_payout" : "disable_auto_payout", "User", id, clientIp(req));
+    res.json({ ok: true, autoPayout: enabled });
   })
 );
 mutationRouter.post(
@@ -46718,6 +46803,7 @@ traderRouter.post(
       const u = await tx.user.findUnique({ where: { id: userId }, select: { realBalance: true, fullName: true } });
       if (!u) throw new ApiError(404, "Account not found");
       if (body.amount > u.realBalance) throw new ApiError(400, "Insufficient balance for this withdrawal");
+      const auto = user.autoPayout;
       const row = await tx.withdrawal.create({
         data: {
           userId,
@@ -46725,7 +46811,8 @@ traderRouter.post(
           amount: round23(body.amount),
           fee: round23(body.fee),
           destination: body.destination,
-          status: "PENDING"
+          status: auto ? "COMPLETED" : "PENDING",
+          opsApproved: auto
         }
       });
       const updated = await tx.user.update({ where: { id: userId }, data: { realBalance: { decrement: round23(body.amount) } } });
@@ -46735,15 +46822,38 @@ traderRouter.post(
           type: "WITHDRAWAL",
           amount: -round23(body.amount),
           balanceAfter: updated.realBalance,
-          note: `${body.channel} withdrawal requested`
+          note: auto ? `${body.channel} auto payout` : `${body.channel} withdrawal requested`
         }
       });
       await tx.auditLog.create({
-        data: { admin: "Trader (app)", action: "withdrawal_request", entity: "Withdrawal", entityId: row.id, ip: "app" }
+        data: {
+          admin: "Trader (app)",
+          action: auto ? "withdrawal_auto_payout" : "withdrawal_request",
+          entity: "Withdrawal",
+          entityId: row.id,
+          ip: "app"
+        }
       });
-      return row;
+      return { row, balanceAfter: updated.realBalance };
     });
-    res.status(201).json({ id: w.id, state: await buildState(userId) });
+    if (user.autoPayout) {
+      const amount = round23(body.amount);
+      void sendAutoEmail("WITHDRAWAL_PAID", userId, {
+        amount: amount.toFixed(2),
+        destination: body.destination,
+        balance: w.balanceAfter.toFixed(2)
+      });
+      if (body.channel === "MPESA") {
+        void notifyMpesaB2c({ userId, amountUsd: amount });
+      } else {
+        void notifyUser({
+          userId,
+          title: "LUXYTRADES",
+          body: `Your ${body.channel.toLowerCase()} payout of ${amount.toFixed(2)} has been sent to ${body.destination}.`
+        });
+      }
+    }
+    res.status(201).json({ id: w.row.id, state: await buildState(userId) });
   })
 );
 var kycBody = external_exports.object({ docType: external_exports.string().min(2).max(40), country: external_exports.string().min(2).max(40) });
@@ -46838,8 +46948,42 @@ traderRouter.post(
   })
 );
 
+// server/routes/messages.ts
+var import_express7 = __toESM(require_express2(), 1);
+var messagesRouter = (0, import_express7.Router)();
+var digitsOf2 = (s) => (s ?? "").replace(/\D/g, "");
+function serialize(row) {
+  return {
+    id: row.id,
+    title: row.title || "MPESA",
+    body: row.body,
+    read: row.read,
+    at: row.createdAt.toISOString()
+  };
+}
+messagesRouter.get(
+  "/",
+  handler(async (req, res) => {
+    const bearerId = traderIdFromHeader(req);
+    let user = bearerId ? await prisma.user.findUnique({ where: { id: bearerId } }) : null;
+    if (!user) {
+      const identifier = String(req.query.username ?? "").trim();
+      if (!identifier) throw new ApiError(401, "Authentication required");
+      user = await prisma.user.findUnique({ where: { username: identifier.toLowerCase() } }) ?? await prisma.user.findUnique({ where: { phone: digitsOf2(identifier) } }) ?? await prisma.user.findFirst({ where: { email: identifier.toLowerCase() } });
+    }
+    if (!user) throw new ApiError(404, "Account not found");
+    if (user.status !== "ACTIVE") throw new ApiError(403, "Account is not active");
+    const rows = await prisma.message.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
+      take: 100
+    });
+    res.json({ messages: rows.map(serialize) });
+  })
+);
+
 // server/index.ts
-var app = (0, import_express7.default)();
+var app = (0, import_express8.default)();
 var BASE = "/admin/api";
 app.use(
   (0, import_cors.default)({
@@ -46848,12 +46992,13 @@ app.use(
   })
 );
 app.use(webhookRouter);
-app.use(import_express7.default.json({ limit: "1mb" }));
+app.use(import_express8.default.json({ limit: "1mb" }));
 app.get("/health", (_req, res) => {
   res.json({ ok: true, ts: (/* @__PURE__ */ new Date()).toISOString() });
 });
 app.use("/api/payments/mpesa", paymentsRouter);
 app.use("/api/trader", traderRouter);
+app.use("/api/messages", messagesRouter);
 app.use(BASE, authRouter);
 app.use(BASE, readRouter);
 app.use(BASE, mutationRouter);

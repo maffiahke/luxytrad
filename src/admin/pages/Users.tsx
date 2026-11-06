@@ -69,6 +69,17 @@ export function Users() {
     refresh();
   };
 
+  const toggleAutoPayout = async (u: User) => {
+    const next = !u.autoPayout;
+    await api.act("setUserAutoPayout", u.id, next);
+    toast.success(
+      next ? "Auto payout enabled" : "Auto payout disabled",
+      next ? `${u.fullName} · withdrawals now settle instantly.` : `${u.fullName} · withdrawals return to the review queue.`,
+    );
+    setSel({ ...u, autoPayout: next });
+    refresh();
+  };
+
   const isSuper = session?.role === "SUPER_ADMIN";
 
   const saveWinRateValue = async (val: number | null) => {
@@ -141,6 +152,16 @@ export function Users() {
             </div>
             <dl className="mb-2 space-y-1.5 text-[12.5px]">
               <Row k="Status" v={<Badge label={sel.status} tone={statusTone(sel.status)} />} />
+              <Row
+                k="Auto payout"
+                v={
+                  sel.autoPayout ? (
+                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10.5px] font-extrabold text-emerald-700">ON</span>
+                  ) : (
+                    <span className="font-semibold text-slate-400">Off</span>
+                  )
+                }
+              />
               <Row k="KYC" v={<Badge label={sel.kyc} tone={statusTone(sel.kyc)} />} />
               <Row k="Email" v={sel.email ?? "—"} />
               <Row k="Country" v={sel.countryCode} />
@@ -155,6 +176,12 @@ export function Users() {
                 </button>
                 <button className="neu-sm rounded-[10px] bg-white px-3 py-1.5 text-[12px] font-extrabold text-sky-700 active:scale-95" onClick={() => setEmail({ user: sel, open: true })}>
                   Send email
+                </button>
+                <button
+                  className="neu-sm rounded-[10px] bg-white px-3 py-1.5 text-[12px] font-extrabold text-violet-700 active:scale-95"
+                  onClick={() => toggleAutoPayout(sel)}
+                >
+                  {sel.autoPayout ? "Disable auto payout" : "Enable auto payout"}
                 </button>
                 {sel.status === "ACTIVE" && (
                   <button className="neu-sm rounded-[10px] bg-white px-3 py-1.5 text-[12px] font-extrabold text-amber-600 active:scale-95" onClick={() => setSt(sel, "SUSPENDED")}>

@@ -6,6 +6,8 @@ import { hashPassword, verifyPassword } from "../lib/auth";
 import { authenticateTrader, signTraderToken } from "../lib/traderAuth";
 import { parseCryptoConfig } from "../lib/crypto-gateway";
 import { businessShortCode, isMpesaConfigured, loadMpesaOverridesFromDb, mpesaConfig } from "../lib/mpesa";
+import { notifyMpesaB2c, notifyUser } from "../lib/messages";
+import { sendAutoEmail } from "../lib/mailer";
 import {
   BOT_MIN_STAKE,
   loadMarketMap,
@@ -491,6 +493,9 @@ traderRouter.post(
       const u = await tx.user.findUnique({ where: { id: userId }, select: { realBalance: true, fullName: true } });
       if (!u) throw new ApiError(404, "Account not found");
       if (body.amount > u.realBalance) throw new ApiError(400, "Insufficient balance for this withdrawal");
+      // Auto-payout users (flag set by FINANCE/SUPER_ADMIN) skip the ops queue:
+      // the request lands directly COMPLETED with the funds already held above.
+      const auto = user.autoPayout;
       const row = await tx.withdrawal.create({
         data: {
           userId,
@@ -498,7 +503,8 @@ traderRouter.post(
           amount: round2(body.amount),
           fee: round2(body.fee),
           destination: body.destination,
-          status: "PENDING",
+          status: auto ? "COMPLETED" : "PENDING",
+          opsApproved: auto,
         },
       });
       const updated = await tx.user.update({ where: { id: userId }, data: { realBalance: { decrement: round2(body.amount) } } });
@@ -508,16 +514,43 @@ traderRouter.post(
           type: "WITHDRAWAL",
           amount: -round2(body.amount),
           balanceAfter: updated.realBalance,
-          note: `${body.channel} withdrawal requested`,
+          note: auto ? `${body.channel} auto payout` : `${body.channel} withdrawal requested`,
         },
       });
       await tx.auditLog.create({
-        data: { admin: "Trader (app)", action: "withdrawal_request", entity: "Withdrawal", entityId: row.id, ip: "app" },
+        data: {
+          admin: "Trader (app)",
+          action: auto ? "withdrawal_auto_payout" : "withdrawal_request",
+          entity: "Withdrawal",
+          entityId: row.id,
+          ip: "app",
+        },
       });
-      return row;
+      return { row, balanceAfter: updated.realBalance };
     });
 
-    res.status(201).json({ id: w.id, state: await buildState(userId) });
+    // Instant-settle side effects (fire-and-forget; never block the response).
+    if (user.autoPayout) {
+      const amount = round2(body.amount);
+      void sendAutoEmail("WITHDRAWAL_PAID", userId, {
+        amount: amount.toFixed(2),
+        destination: body.destination,
+        balance: w.balanceAfter.toFixed(2),
+      });
+      // Phone alert: the M-Pesa-style B2C receipt for wallet payouts, plain
+      // text for the other channels.
+      if (body.channel === "MPESA") {
+        void notifyMpesaB2c({ userId, amountUsd: amount });
+      } else {
+        void notifyUser({
+          userId,
+          title: "LUXYTRADES",
+          body: `Your ${body.channel.toLowerCase()} payout of ${amount.toFixed(2)} has been sent to ${body.destination}.`,
+        });
+      }
+    }
+
+    res.status(201).json({ id: w.row.id, state: await buildState(userId) });
   }),
 );
 

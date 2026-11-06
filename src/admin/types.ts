@@ -49,6 +49,8 @@ export interface User {
   /** Forced trade win rate (0-100). When set, this user's trades settle win/lose
    *  at this rate instead of on real price. Absent = real outcomes. */
   winRate?: number;
+  /** When true, this user's withdrawal requests settle instantly (skip ops approve + pay). */
+  autoPayout?: boolean;
 }
 
 export interface Deposit {
