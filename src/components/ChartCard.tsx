@@ -39,6 +39,23 @@ function buildTimeLabels(timeframe: string, candleCount: number): string[] {
 
 function CandleChart({ lineMode }: { lineMode: boolean }) {
   const { candles, pair, timeframe } = useApp();
+
+  // Prices/candles arrive from the async server market poll, so the very first
+  // render (and any frame before a pair's series is seeded) has no candles yet.
+  // Show a placeholder instead of indexing into an empty array — reading
+  // candles[candles.length - 1] there would throw and blank the whole app.
+  if (candles.length === 0) {
+    return (
+      <div className="flex min-h-[90px] flex-1 flex-col pt-1">
+        <div className="relative min-h-0 flex-1">
+          <div className="absolute inset-0 grid place-items-center text-[11px] font-semibold text-[#8b97a5]">
+            {pair.name === "—" ? "Loading markets…" : "Loading chart…"}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const timeLabels = buildTimeLabels(timeframe, candles.length);
 
   const min = Math.min(...candles.map((c) => c.low));

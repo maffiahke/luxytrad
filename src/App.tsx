@@ -13,6 +13,7 @@ import { TradeHistory } from "./components/TradeHistory";
 import { AuthScreen, type AuthMode } from "./components/AuthScreen";
 import { ToastProvider } from "./components/Toast";
 import { AppProvider } from "./state/AppStore";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { getToken } from "./api/trader";
 
 function Shell() {
@@ -52,9 +53,11 @@ function Root() {
     return <AuthScreen mode={mode} onModeChange={setMode} onSuccess={() => setAuthed(true)} />;
   }
   return (
-    <AppProvider onSignedOut={() => setAuthed(false)}>
-      <Shell />
-    </AppProvider>
+    <ErrorBoundary resetKey={authed}>
+      <AppProvider onSignedOut={() => setAuthed(false)}>
+        <Shell />
+      </AppProvider>
+    </ErrorBoundary>
   );
 }
 
