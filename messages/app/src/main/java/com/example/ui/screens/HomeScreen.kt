@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -187,14 +188,15 @@ fun HomeScreen(
                 }
             }
 
-            // Category filter chips row
-            Row(
+            // Category filter chips row — horizontally scrollable so the tabs
+            // never squeeze or wrap on narrow screens (like Google Messages).
+            LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                categories.forEach { category ->
+                items(categories) { category ->
                     val isSelected = selectedCategory == category
                     FilterChip(
                         selected = isSelected,
@@ -203,6 +205,8 @@ fun HomeScreen(
                             Text(
                                 text = category,
                                 fontSize = 13.sp,
+                                maxLines = 1,
+                                softWrap = false,
                                 fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
                             )
                         },
