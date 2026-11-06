@@ -45395,12 +45395,13 @@ readRouter.get("/email/log", handler(async (_req, res) => {
   res.json(rows.map(mapEmailLog));
 }));
 readRouter.get("/reports/overview", handler(async (_req, res) => {
-  const [users, deposits, withdrawals, positions, tickets] = await Promise.all([
+  const [users, deposits, withdrawals, positions, tickets, bots] = await Promise.all([
     prisma.user.findMany({ select: { status: true, kyc: true } }),
     prisma.deposit.findMany({ where: { status: { in: ["PENDING", "ACTION_REQUIRED", "UNDER_REVIEW"] } }, select: { amount: true } }),
     prisma.withdrawal.findMany({ where: { status: { in: ["PENDING", "UNDER_REVIEW", "APPROVED"] } }, select: { amount: true } }),
     prisma.position.findMany({ select: { status: true, amount: true, payout: true, openedAt: true } }),
-    prisma.ticket.count({ where: { status: { in: ["OPEN", "PENDING"] } } })
+    prisma.ticket.count({ where: { status: { in: ["OPEN", "PENDING"] } } }),
+    prisma.bot.findMany({ select: { stake: true, total: true } })
   ]);
   const settled = positions.filter((p) => p.status !== "OPEN");
   const netPnlToday = settled.reduce((s, p) => s + (p.status === "WON" ? -(p.payout ?? 0) : p.amount), 0);
@@ -45436,6 +45437,7 @@ readRouter.get("/reports/overview", handler(async (_req, res) => {
     netPnlToday,
     openTickets: tickets,
     verifiedPct: users.length ? Math.round(users.filter((u) => u.kyc === "APPROVED").length / users.length * 100) : 0,
+    botVolume: bots.reduce((s, b) => s + b.stake * b.total, 0),
     volumeSeries
   });
 }));

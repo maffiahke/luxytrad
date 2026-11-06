@@ -1,10 +1,13 @@
 import type { ReactNode } from "react";
 import { SearchIcon } from "../components/icons";
 
-export const money = (n: number, digits = 2) =>
-  `$${n.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+export const money = (n: number | undefined | null, digits = 2) =>
+  n == null || Number.isNaN(n)
+    ? "—"
+    : `$${n.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
 
-export const num = (n: number) => n.toLocaleString("en-US");
+export const num = (n: number | undefined | null) =>
+  n == null || Number.isNaN(n) ? "—" : n.toLocaleString("en-US");
 
 export const shortDate = (iso: string) => {
   const d = new Date(iso);
