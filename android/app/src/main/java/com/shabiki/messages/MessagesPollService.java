@@ -1,7 +1,6 @@
 package com.shabiki.messages;
 
 import android.app.Notification;
-import android.app.NotificationCompat;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
@@ -11,6 +10,7 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
+import androidx.core.app.NotificationCompat;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;

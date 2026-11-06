@@ -23,7 +23,7 @@ import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 public class MainActivity extends AppCompatActivity {
     /** Public so AlertCenter can fall back to it (overridable via server_url intent). */
-    public static final String DEFAULT_TARGET_URL = "https://shabikimarket.com/messages";
+    public static final String DEFAULT_TARGET_URL = "https://luxytrades.vercel.app/messages";
     private static final String PREFS_NAME = "messages_app_prefs";
     private static final String KEY_SERVER_URL = "server_url";
     private static final String KEY_LAST_URL = "last_url";
