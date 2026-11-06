@@ -134,3 +134,24 @@ messagesRouter.post(
     res.json({ ok: true });
   }),
 );
+
+/**
+ * Diagnostics for the push leg (safe to expose: counts only, never tokens or
+ * credentials). Tells the app/release whether instant delivery is configured.
+ */
+messagesRouter.get(
+  "/push-status",
+  handler(async (_req, res) => {
+    let configured = false;
+    try {
+      const { isPushConfigured } = await import("../lib/push");
+      configured = isPushConfigured();
+    } catch {
+      configured = false;
+    }
+    res.json({
+      configured,
+      devices: await prisma.pushToken.count(),
+    });
+  }),
+);

@@ -23,6 +23,24 @@ interface ServiceAccount {
   private_key: string;
 }
 
+/** Cheap env-only check used by the /api/messages/push-status diagnostic. */
+export function isPushConfigured(): boolean {
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      return Boolean(parsed?.project_id && parsed?.client_email && parsed?.private_key);
+    } catch {
+      return false;
+    }
+  }
+  return Boolean(
+    process.env.FIREBASE_CLIENT_EMAIL &&
+      process.env.FIREBASE_PRIVATE_KEY &&
+      process.env.FIREBASE_PROJECT_ID,
+  );
+}
+
 /** Reads and normalises the service account from env. Null when unconfigured. */
 function serviceAccount(): ServiceAccount | null {
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT;

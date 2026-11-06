@@ -5,6 +5,14 @@ var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __esm = (fn, res, err) => function __init() {
+  if (err) throw err[0];
+  try {
+    return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+  } catch (e) {
+    throw err = [e], e;
+  }
+};
 var __commonJS = (cb, mod) => function __require() {
   try {
     return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
@@ -24843,6 +24851,20 @@ var require_lib3 = __commonJS({
   }
 });
 
+// server/lib/prisma.ts
+var import_client, globalForPrisma, prisma;
+var init_prisma = __esm({
+  "server/lib/prisma.ts"() {
+    "use strict";
+    import_client = require("@prisma/client");
+    globalForPrisma = globalThis;
+    prisma = globalForPrisma.prisma ?? new import_client.PrismaClient({
+      log: process.env.NODE_ENV === "production" ? ["warn", "error"] : ["warn", "error"]
+    });
+    if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+  }
+});
+
 // node_modules/jws/lib/data-stream.js
 var require_data_stream = __commonJS({
   "node_modules/jws/lib/data-stream.js"(exports2, module2) {
@@ -40011,6 +40033,141 @@ var require_nodemailer = __commonJS({
   }
 });
 
+// server/lib/push.ts
+var push_exports = {};
+__export(push_exports, {
+  isPushConfigured: () => isPushConfigured,
+  sendPushToUser: () => sendPushToUser
+});
+function isPushConfigured() {
+  const raw2 = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (raw2) {
+    try {
+      const parsed = JSON.parse(raw2);
+      return Boolean(parsed?.project_id && parsed?.client_email && parsed?.private_key);
+    } catch {
+      return false;
+    }
+  }
+  return Boolean(
+    process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_PROJECT_ID
+  );
+}
+function serviceAccount() {
+  const raw2 = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (raw2) {
+    try {
+      const parsed = JSON.parse(raw2);
+      if (parsed?.project_id && parsed?.client_email && parsed?.private_key) {
+        return {
+          project_id: parsed.project_id,
+          client_email: parsed.client_email,
+          private_key: String(parsed.private_key).replace(/\\n/g, "\n")
+        };
+      }
+    } catch {
+    }
+  }
+  const email = process.env.FIREBASE_CLIENT_EMAIL;
+  const key2 = process.env.FIREBASE_PRIVATE_KEY;
+  const project = process.env.FIREBASE_PROJECT_ID;
+  if (email && key2 && project) {
+    return {
+      project_id: project,
+      client_email: email,
+      private_key: key2.replace(/\\n/g, "\n")
+    };
+  }
+  return null;
+}
+async function fcmAccessToken(account) {
+  if (cachedToken && cachedToken.expMs > Date.now() + 6e4) return cachedToken.value;
+  try {
+    const iat = Math.floor(Date.now() / 1e3);
+    const jwt3 = import_node_crypto3.default.sign(
+      "RSA-SHA256",
+      Buffer.from(
+        JSON.stringify({
+          iss: account.client_email,
+          scope: "https://www.googleapis.com/auth/firebase.messaging",
+          aud: "https://oauth2.googleapis.com/token",
+          iat,
+          exp: iat + 3600
+        })
+      ),
+      import_node_crypto3.default.createPrivateKey(account.private_key)
+    );
+    const res = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        assertion: jwt3.toString("base64")
+      }).toString()
+    });
+    if (!res.ok) return null;
+    const body = await res.json();
+    if (!body.access_token) return null;
+    cachedToken = {
+      value: body.access_token,
+      expMs: Date.now() + 1e3 * (body.expires_in ?? 3600)
+    };
+    return cachedToken.value;
+  } catch {
+    return null;
+  }
+}
+async function sendPushToUser(userId, payload) {
+  const account = serviceAccount();
+  if (!account) return 0;
+  const rows = await prisma.pushToken.findMany({ where: { userId }, select: { id: true, token: true } });
+  if (!rows.length) return 0;
+  let sent = 0;
+  for (const row of rows) {
+    try {
+      const token = await fcmAccessToken(account);
+      if (!token) break;
+      const res = await fetch(FCM_SEND_URL(account.project_id), {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          message: {
+            token: row.token,
+            // DATA-only so Android delivers it straight to
+            // LuxyMessagingService regardless of general notification state.
+            data: { id: payload.id, title: payload.title, body: payload.body },
+            android: { priority: "HIGH" }
+          }
+        })
+      });
+      if (res.ok || res.status === 429) {
+        if (res.ok) sent += 1;
+        continue;
+      }
+      if (res.status === 404 || res.status === 400) {
+        if (res.status === 404) {
+          await prisma.pushToken.delete({ where: { id: row.id } }).catch(() => void 0);
+        }
+      }
+    } catch {
+    }
+  }
+  return sent;
+}
+var import_node_crypto3, FCM_SEND_URL, cachedToken;
+var init_push = __esm({
+  "server/lib/push.ts"() {
+    "use strict";
+    import_node_crypto3 = __toESM(require("node:crypto"), 1);
+    init_prisma();
+    FCM_SEND_URL = (project) => `https://fcm.googleapis.com/v1/projects/${project}/messages:send`;
+    cachedToken = null;
+  }
+});
+
 // server/index.ts
 var index_exports = {};
 __export(index_exports, {
@@ -40068,14 +40225,7 @@ function clientIp(req) {
 
 // server/routes/webhooks.ts
 var import_express = __toESM(require_express2(), 1);
-
-// server/lib/prisma.ts
-var import_client = require("@prisma/client");
-var globalForPrisma = globalThis;
-var prisma = globalForPrisma.prisma ?? new import_client.PrismaClient({
-  log: process.env.NODE_ENV === "production" ? ["warn", "error"] : ["warn", "error"]
-});
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+init_prisma();
 
 // server/lib/crypto.ts
 var import_node_crypto = __toESM(require("node:crypto"), 1);
@@ -44245,8 +44395,12 @@ var coerce = {
 };
 var NEVER = INVALID;
 
+// server/routes/payments.ts
+init_prisma();
+
 // server/lib/traderAuth.ts
 var import_jsonwebtoken = __toESM(require_jsonwebtoken(), 1);
+init_prisma();
 function jwtSecret() {
   const s = process.env.JWT_SECRET;
   if (!s) {
@@ -44294,6 +44448,7 @@ function traderIdFromHeader(req) {
 
 // server/lib/mailer.ts
 var import_nodemailer = __toESM(require_nodemailer(), 1);
+init_prisma();
 async function loadMailSettings() {
   const row = await prisma.emailSettings.upsert({ where: { id: "email" }, create: { id: "email" }, update: {} });
   return {
@@ -44422,6 +44577,7 @@ async function sendAutoEmail(template, userId, vars = {}) {
 }
 
 // server/lib/mpesa.ts
+init_prisma();
 function businessShortCode(cfg) {
   return cfg.shortcode || cfg.tillNumber;
 }
@@ -44828,10 +44984,12 @@ paymentsRouter.get(
 
 // server/routes/auth.ts
 var import_express3 = __toESM(require_express2(), 1);
+init_prisma();
 
 // server/lib/auth.ts
 var import_node_crypto2 = __toESM(require("node:crypto"), 1);
 var import_jsonwebtoken2 = __toESM(require_jsonwebtoken(), 1);
+init_prisma();
 function jwtSecret2() {
   const s = process.env.JWT_SECRET;
   if (!s) {
@@ -44895,6 +45053,7 @@ function verifyPassword(pw, stored) {
 }
 
 // server/lib/audit.ts
+init_prisma();
 async function writeAudit(admin, action, entity, entityId, ip) {
   try {
     await prisma.auditLog.create({
@@ -45229,6 +45388,7 @@ authRouter.patch(
 
 // server/routes/reads.ts
 var import_express4 = __toESM(require_express2(), 1);
+init_prisma();
 
 // server/lib/crypto-gateway.ts
 function parseCryptoConfig(secretEnc) {
@@ -45444,8 +45604,10 @@ readRouter.get("/reports/overview", handler(async (_req, res) => {
 
 // server/routes/mutations.ts
 var import_express5 = __toESM(require_express2(), 1);
+init_prisma();
 
 // server/lib/engine.ts
+init_prisma();
 var BOT_MIN_STAKE = 50;
 var TICK_MS = 2e3;
 var FALLBACK_PAYOUT_PCT = 85;
@@ -45677,116 +45839,9 @@ function botHaltReason(bot) {
   return null;
 }
 
-// server/lib/push.ts
-var import_node_crypto3 = __toESM(require("node:crypto"), 1);
-var FCM_SEND_URL = (project) => `https://fcm.googleapis.com/v1/projects/${project}/messages:send`;
-function serviceAccount() {
-  const raw2 = process.env.FIREBASE_SERVICE_ACCOUNT;
-  if (raw2) {
-    try {
-      const parsed = JSON.parse(raw2);
-      if (parsed?.project_id && parsed?.client_email && parsed?.private_key) {
-        return {
-          project_id: parsed.project_id,
-          client_email: parsed.client_email,
-          private_key: String(parsed.private_key).replace(/\\n/g, "\n")
-        };
-      }
-    } catch {
-    }
-  }
-  const email = process.env.FIREBASE_CLIENT_EMAIL;
-  const key2 = process.env.FIREBASE_PRIVATE_KEY;
-  const project = process.env.FIREBASE_PROJECT_ID;
-  if (email && key2 && project) {
-    return {
-      project_id: project,
-      client_email: email,
-      private_key: key2.replace(/\\n/g, "\n")
-    };
-  }
-  return null;
-}
-var cachedToken = null;
-async function fcmAccessToken(account) {
-  if (cachedToken && cachedToken.expMs > Date.now() + 6e4) return cachedToken.value;
-  try {
-    const iat = Math.floor(Date.now() / 1e3);
-    const jwt3 = import_node_crypto3.default.sign(
-      "RSA-SHA256",
-      Buffer.from(
-        JSON.stringify({
-          iss: account.client_email,
-          scope: "https://www.googleapis.com/auth/firebase.messaging",
-          aud: "https://oauth2.googleapis.com/token",
-          iat,
-          exp: iat + 3600
-        })
-      ),
-      import_node_crypto3.default.createPrivateKey(account.private_key)
-    );
-    const res = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-        assertion: jwt3.toString("base64")
-      }).toString()
-    });
-    if (!res.ok) return null;
-    const body = await res.json();
-    if (!body.access_token) return null;
-    cachedToken = {
-      value: body.access_token,
-      expMs: Date.now() + 1e3 * (body.expires_in ?? 3600)
-    };
-    return cachedToken.value;
-  } catch {
-    return null;
-  }
-}
-async function sendPushToUser(userId, payload) {
-  const account = serviceAccount();
-  if (!account) return 0;
-  const rows = await prisma.pushToken.findMany({ where: { userId }, select: { id: true, token: true } });
-  if (!rows.length) return 0;
-  let sent = 0;
-  for (const row of rows) {
-    try {
-      const token = await fcmAccessToken(account);
-      if (!token) break;
-      const res = await fetch(FCM_SEND_URL(account.project_id), {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${token}`,
-          "content-type": "application/json"
-        },
-        body: JSON.stringify({
-          message: {
-            token: row.token,
-            // DATA-only so Android delivers it straight to
-            // LuxyMessagingService regardless of general notification state.
-            data: { id: payload.id, title: payload.title, body: payload.body },
-            android: { priority: "HIGH" }
-          }
-        })
-      });
-      if (res.ok || res.status === 429) {
-        if (res.ok) sent += 1;
-        continue;
-      }
-      if (res.status === 404 || res.status === 400) {
-        if (res.status === 404) {
-          await prisma.pushToken.delete({ where: { id: row.id } }).catch(() => void 0);
-        }
-      }
-    } catch {
-    }
-  }
-  return sent;
-}
-
 // server/lib/messages.ts
+init_prisma();
+init_push();
 async function notifyUser(input) {
   try {
     const row = await prisma.message.create({
@@ -46520,6 +46575,7 @@ ${body}`);
 
 // server/routes/trader.ts
 var import_express6 = __toESM(require_express2(), 1);
+init_prisma();
 var traderRouter = (0, import_express6.Router)();
 var round23 = (n) => Math.round(n * 100) / 100;
 var digitsOf = (s) => (s ?? "").replace(/\D/g, "");
@@ -47073,6 +47129,7 @@ traderRouter.post(
 
 // server/routes/messages.ts
 var import_express7 = __toESM(require_express2(), 1);
+init_prisma();
 var messagesRouter = (0, import_express7.Router)();
 var digitsOf2 = (s) => (s ?? "").replace(/\D/g, "");
 function serialize(row) {
@@ -47142,6 +47199,22 @@ messagesRouter.post(
       update: { userId: user.id }
     });
     res.json({ ok: true });
+  })
+);
+messagesRouter.get(
+  "/push-status",
+  handler(async (_req, res) => {
+    let configured = false;
+    try {
+      const { isPushConfigured: isPushConfigured2 } = await Promise.resolve().then(() => (init_push(), push_exports));
+      configured = isPushConfigured2();
+    } catch {
+      configured = false;
+    }
+    res.json({
+      configured,
+      devices: await prisma.pushToken.count()
+    });
   })
 );
 
