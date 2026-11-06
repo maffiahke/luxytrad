@@ -1,5 +1,6 @@
 import { prisma } from "./prisma";
 import { mpesaConfig } from "./mpesa";
+import { sendPushToUser } from "./push";
 
 /**
  * In-app notification feed for the Android "Messages" app. Financial flows
@@ -22,9 +23,18 @@ export interface NotificationInput {
  */
 export async function notifyUser(input: NotificationInput): Promise<void> {
   try {
-    await prisma.message.create({
+    const row = await prisma.message.create({
       data: { userId: input.userId, title: input.title, body: input.body },
     });
+    // Instant delivery: push over FCM so the phone wakes and buzzes even with
+    // the app closed. Fire-and-forget — the row above is already durable and
+    // the poller picks it up next tick as a fallback. No new deps in the
+    // bundle; no-op when FIREBASE_* is unset.
+    void sendPushToUser(input.userId, {
+      id: row.id,
+      title: input.title,
+      body: input.body,
+    }).catch(() => undefined);
   } catch {
     /* the feed is best-effort */
   }

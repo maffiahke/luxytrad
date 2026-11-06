@@ -108,7 +108,7 @@ var require_main = __commonJS({
     var fs = require("fs");
     var path = require("path");
     var os = require("os");
-    var crypto3 = require("crypto");
+    var crypto4 = require("crypto");
     var packageJson = require_package();
     var version = packageJson.version;
     var LINE = /(?:^|^)\s*(?:export\s+)?([\w.-]+)(?:\s*=\s*?|:\s+?)(\s*'(?:\\'|[^'])*'|\s*"(?:\\"|[^"])*"|\s*`(?:\\`|[^`])*`|[^#\r\n]+)?\s*(?:#.*)?(?:$|$)/mg;
@@ -327,7 +327,7 @@ var require_main = __commonJS({
       const authTag = ciphertext.subarray(-16);
       ciphertext = ciphertext.subarray(12, -16);
       try {
-        const aesgcm = crypto3.createDecipheriv("aes-256-gcm", key2, nonce);
+        const aesgcm = crypto4.createDecipheriv("aes-256-gcm", key2, nonce);
         aesgcm.setAuthTag(authTag);
         return `${aesgcm.update(ciphertext)}${aesgcm.final()}`;
       } catch (error) {
@@ -20668,14 +20668,14 @@ var require_etag = __commonJS({
   "node_modules/etag/index.js"(exports2, module2) {
     "use strict";
     module2.exports = etag;
-    var crypto3 = require("crypto");
+    var crypto4 = require("crypto");
     var Stats = require("fs").Stats;
     var toString = Object.prototype.toString;
     function entitytag(entity) {
       if (entity.length === 0) {
         return '"0-2jmj7l5rSw0yVb/vlWAYkK/YBwk"';
       }
-      var hash = crypto3.createHash("sha1").update(entity, "utf8").digest("base64").substring(0, 27);
+      var hash = crypto4.createHash("sha1").update(entity, "utf8").digest("base64").substring(0, 27);
       var len = typeof entity === "string" ? Buffer.byteLength(entity, "utf8") : entity.length;
       return '"' + len.toString(16) + "-" + hash + '"';
     }
@@ -23584,11 +23584,11 @@ var require_request = __commonJS({
 // node_modules/cookie-signature/index.js
 var require_cookie_signature = __commonJS({
   "node_modules/cookie-signature/index.js"(exports2) {
-    var crypto3 = require("crypto");
+    var crypto4 = require("crypto");
     exports2.sign = function(val, secret) {
       if ("string" !== typeof val) throw new TypeError("Cookie value must be provided as a string.");
       if (null == secret) throw new TypeError("Secret key must be provided.");
-      return val + "." + crypto3.createHmac("sha256", secret).update(val).digest("base64").replace(/\=+$/, "");
+      return val + "." + crypto4.createHmac("sha256", secret).update(val).digest("base64").replace(/\=+$/, "");
     };
     exports2.unsign = function(val, secret) {
       if ("string" !== typeof val) throw new TypeError("Signed cookie string must be provided.");
@@ -23597,7 +23597,7 @@ var require_cookie_signature = __commonJS({
       return sha1(mac) == sha1(val) ? str2 : false;
     };
     function sha1(str2) {
-      return crypto3.createHash("sha1").update(str2).digest("hex");
+      return crypto4.createHash("sha1").update(str2).digest("hex");
     }
   }
 });
@@ -25093,14 +25093,14 @@ var require_buffer_equal_constant_time = __commonJS({
 var require_jwa = __commonJS({
   "node_modules/jwa/index.js"(exports2, module2) {
     var Buffer2 = require_safe_buffer().Buffer;
-    var crypto3 = require("crypto");
+    var crypto4 = require("crypto");
     var formatEcdsa = require_ecdsa_sig_formatter();
     var util2 = require("util");
     var MSG_INVALID_ALGORITHM = '"%s" is not a valid algorithm.\n  Supported algorithms are:\n  "HS256", "HS384", "HS512", "RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512" and "none".';
     var MSG_INVALID_SECRET = "secret must be a string or buffer";
     var MSG_INVALID_VERIFIER_KEY = "key must be a string or a buffer";
     var MSG_INVALID_SIGNER_KEY = "key must be a string, a buffer or an object";
-    var supportsKeyObjects = typeof crypto3.createPublicKey === "function";
+    var supportsKeyObjects = typeof crypto4.createPublicKey === "function";
     if (supportsKeyObjects) {
       MSG_INVALID_VERIFIER_KEY += " or a KeyObject";
       MSG_INVALID_SECRET += "or a KeyObject";
@@ -25190,17 +25190,17 @@ var require_jwa = __commonJS({
       return function sign(thing, secret) {
         checkIsSecretKey(secret);
         thing = normalizeInput(thing);
-        var hmac = crypto3.createHmac("sha" + bits, secret);
+        var hmac = crypto4.createHmac("sha" + bits, secret);
         var sig = (hmac.update(thing), hmac.digest("base64"));
         return fromBase64(sig);
       };
     }
     var bufferEqual;
-    var timingSafeEqual = "timingSafeEqual" in crypto3 ? function timingSafeEqual2(a, b) {
+    var timingSafeEqual = "timingSafeEqual" in crypto4 ? function timingSafeEqual2(a, b) {
       if (a.byteLength !== b.byteLength) {
         return false;
       }
-      return crypto3.timingSafeEqual(a, b);
+      return crypto4.timingSafeEqual(a, b);
     } : function timingSafeEqual2(a, b) {
       if (!bufferEqual) {
         bufferEqual = require_buffer_equal_constant_time();
@@ -25217,7 +25217,7 @@ var require_jwa = __commonJS({
       return function sign(thing, privateKey) {
         checkIsPrivateKey(privateKey);
         thing = normalizeInput(thing);
-        var signer = crypto3.createSign("RSA-SHA" + bits);
+        var signer = crypto4.createSign("RSA-SHA" + bits);
         var sig = (signer.update(thing), signer.sign(privateKey, "base64"));
         return fromBase64(sig);
       };
@@ -25227,7 +25227,7 @@ var require_jwa = __commonJS({
         checkIsPublicKey(publicKey);
         thing = normalizeInput(thing);
         signature = toBase64(signature);
-        var verifier = crypto3.createVerify("RSA-SHA" + bits);
+        var verifier = crypto4.createVerify("RSA-SHA" + bits);
         verifier.update(thing);
         return verifier.verify(publicKey, signature, "base64");
       };
@@ -25236,11 +25236,11 @@ var require_jwa = __commonJS({
       return function sign(thing, privateKey) {
         checkIsPrivateKey(privateKey);
         thing = normalizeInput(thing);
-        var signer = crypto3.createSign("RSA-SHA" + bits);
+        var signer = crypto4.createSign("RSA-SHA" + bits);
         var sig = (signer.update(thing), signer.sign({
           key: privateKey,
-          padding: crypto3.constants.RSA_PKCS1_PSS_PADDING,
-          saltLength: crypto3.constants.RSA_PSS_SALTLEN_DIGEST
+          padding: crypto4.constants.RSA_PKCS1_PSS_PADDING,
+          saltLength: crypto4.constants.RSA_PSS_SALTLEN_DIGEST
         }, "base64"));
         return fromBase64(sig);
       };
@@ -25250,12 +25250,12 @@ var require_jwa = __commonJS({
         checkIsPublicKey(publicKey);
         thing = normalizeInput(thing);
         signature = toBase64(signature);
-        var verifier = crypto3.createVerify("RSA-SHA" + bits);
+        var verifier = crypto4.createVerify("RSA-SHA" + bits);
         verifier.update(thing);
         return verifier.verify({
           key: publicKey,
-          padding: crypto3.constants.RSA_PKCS1_PSS_PADDING,
-          saltLength: crypto3.constants.RSA_PSS_SALTLEN_DIGEST
+          padding: crypto4.constants.RSA_PKCS1_PSS_PADDING,
+          saltLength: crypto4.constants.RSA_PSS_SALTLEN_DIGEST
         }, signature, "base64");
       };
     }
@@ -33292,7 +33292,7 @@ var require_le_unix = __commonJS({
 var require_mime_node = __commonJS({
   "node_modules/nodemailer/lib/mime-node/index.js"(exports2, module2) {
     "use strict";
-    var crypto3 = require("crypto");
+    var crypto4 = require("crypto");
     var fs = require("fs");
     var punycode = require_punycode();
     var PassThrough = require("stream").PassThrough;
@@ -33309,7 +33309,7 @@ var require_mime_node = __commonJS({
       constructor(contentType, options) {
         this.nodeCounter = 0;
         options = options || {};
-        this.baseBoundary = options.baseBoundary || crypto3.randomBytes(8).toString("hex");
+        this.baseBoundary = options.baseBoundary || crypto4.randomBytes(8).toString("hex");
         this.boundaryPrefix = options.boundaryPrefix || "--_NmP";
         this.disableFileAccess = !!options.disableFileAccess;
         this.disableUrlAccess = !!options.disableUrlAccess;
@@ -34252,8 +34252,8 @@ var require_mime_node = __commonJS({
       _generateMessageId() {
         return "<" + [2, 2, 2, 6].reduce(
           // crux to generate UUID-like random strings
-          (prev, len) => prev + "-" + crypto3.randomBytes(len).toString("hex"),
-          crypto3.randomBytes(4).toString("hex")
+          (prev, len) => prev + "-" + crypto4.randomBytes(len).toString("hex"),
+          crypto4.randomBytes(4).toString("hex")
         ) + "@" + // try to use the domain of the FROM address or fallback to server hostname
         (this.getEnvelope().from || this.hostname || "localhost").split("@").pop() + ">";
       }
@@ -34844,14 +34844,14 @@ var require_relaxed_body = __commonJS({
   "node_modules/nodemailer/lib/dkim/relaxed-body.js"(exports2, module2) {
     "use strict";
     var Transform = require("stream").Transform;
-    var crypto3 = require("crypto");
+    var crypto4 = require("crypto");
     var RelaxedBody = class extends Transform {
       constructor(options) {
         super();
         options = options || {};
         this.chunkBuffer = [];
         this.chunkBufferLen = 0;
-        this.bodyHash = crypto3.createHash(options.hashAlgo || "sha1");
+        this.bodyHash = crypto4.createHash(options.hashAlgo || "sha1");
         this.remainder = "";
         this.byteLength = 0;
         this.debug = options.debug;
@@ -34954,7 +34954,7 @@ var require_sign3 = __commonJS({
     "use strict";
     var punycode = require_punycode();
     var mimeFuncs = require_mime_funcs();
-    var crypto3 = require("crypto");
+    var crypto4 = require("crypto");
     module2.exports = (headers, hashAlgo, bodyHash, options) => {
       options = options || {};
       let defaultFieldNames = "From:Sender:Reply-To:Subject:Date:Message-ID:To:Cc:MIME-Version:Content-Type:Content-Transfer-Encoding:Content-ID:Content-Description:Resent-Date:Resent-From:Resent-Sender:Resent-To:Resent-Cc:Resent-Message-ID:In-Reply-To:References:List-Id:List-Help:List-Unsubscribe:List-Subscribe:List-Post:List-Owner:List-Archive";
@@ -34963,7 +34963,7 @@ var require_sign3 = __commonJS({
       let dkimHeader = generateDKIMHeader(options.domainName, options.keySelector, canonicalizedHeaderData.fieldNames, hashAlgo, bodyHash);
       let signer, signature;
       canonicalizedHeaderData.headers += "dkim-signature:" + relaxedHeaderLine(dkimHeader);
-      signer = crypto3.createSign(("rsa-" + hashAlgo).toUpperCase());
+      signer = crypto4.createSign(("rsa-" + hashAlgo).toUpperCase());
       signer.update(canonicalizedHeaderData.headers);
       try {
         signature = signer.sign(options.privateKey, "base64");
@@ -35031,7 +35031,7 @@ var require_dkim = __commonJS({
     var PassThrough = require("stream").PassThrough;
     var fs = require("fs");
     var path = require("path");
-    var crypto3 = require("crypto");
+    var crypto4 = require("crypto");
     var DKIM_ALGO = "sha256";
     var MAX_MESSAGE_SIZE = 128 * 1024;
     var DKIMSigner = class {
@@ -35044,7 +35044,7 @@ var require_dkim = __commonJS({
         this.chunks = [];
         this.chunklen = 0;
         this.readPos = 0;
-        this.cachePath = this.cacheDir ? path.join(this.cacheDir, "message." + Date.now() + "-" + crypto3.randomBytes(14).toString("hex")) : false;
+        this.cachePath = this.cacheDir ? path.join(this.cacheDir, "message." + Date.now() + "-" + crypto4.randomBytes(14).toString("hex")) : false;
         this.cache = false;
         this.headers = false;
         this.bodyHash = false;
@@ -35600,7 +35600,7 @@ var require_mailer = __commonJS({
     var MailMessage = require_mail_message();
     var net = require("net");
     var dns = require("dns");
-    var crypto3 = require("crypto");
+    var crypto4 = require("crypto");
     var Mail = class extends EventEmitter {
       constructor(transporter, options, defaults) {
         super();
@@ -35924,7 +35924,7 @@ var require_mailer = __commonJS({
           }
           let cidCounter = 0;
           html = (html || "").toString().replace(/(<img\b[^<>]{0,1024} src\s{0,20}=[\s"']{0,20})(data:([^;]+);[^"'>\s]+)/gi, (match, prefix, dataUri, mimeType) => {
-            let cid = crypto3.randomBytes(10).toString("hex") + "@localhost";
+            let cid = crypto4.randomBytes(10).toString("hex") + "@localhost";
             if (!mail.data.attachments) {
               mail.data.attachments = [];
             }
@@ -36051,7 +36051,7 @@ var require_smtp_connection = __commonJS({
     var net = require("net");
     var tls = require("tls");
     var os = require("os");
-    var crypto3 = require("crypto");
+    var crypto4 = require("crypto");
     var DataStream = require_data_stream2();
     var PassThrough = require("stream").PassThrough;
     var shared = require_shared();
@@ -36062,7 +36062,7 @@ var require_smtp_connection = __commonJS({
     var SMTPConnection = class extends EventEmitter {
       constructor(options) {
         super(options);
-        this.id = crypto3.randomBytes(8).toString("base64").replace(/\W/g, "");
+        this.id = crypto4.randomBytes(8).toString("base64").replace(/\W/g, "");
         this.stage = "init";
         this.options = options || {};
         this.secureConnection = !!this.options.secure;
@@ -37155,7 +37155,7 @@ var require_smtp_connection = __commonJS({
         } else {
           challengeString = challengeMatch[1];
         }
-        let base64decoded = Buffer.from(challengeString, "base64").toString("ascii"), hmacMD5 = crypto3.createHmac("md5", this._auth.credentials.pass);
+        let base64decoded = Buffer.from(challengeString, "base64").toString("ascii"), hmacMD5 = crypto4.createHmac("md5", this._auth.credentials.pass);
         hmacMD5.update(base64decoded);
         let prepended = this._auth.credentials.user + " " + hmacMD5.digest("hex");
         this._responseActions.push((str3) => {
@@ -37466,7 +37466,7 @@ var require_xoauth2 = __commonJS({
     "use strict";
     var Stream = require("stream").Stream;
     var nmfetch = require_fetch();
-    var crypto3 = require("crypto");
+    var crypto4 = require("crypto");
     var shared = require_shared();
     var XOAuth2 = class extends Stream {
       constructor(options, logger) {
@@ -37757,7 +37757,7 @@ var require_xoauth2 = __commonJS({
        */
       jwtSignRS256(payload) {
         payload = ['{"alg":"RS256","typ":"JWT"}', JSON.stringify(payload)].map((val) => this.toBase64URL(val)).join(".");
-        let signature = crypto3.createSign("RSA-SHA256").update(payload).sign(this.options.privateKey);
+        let signature = crypto4.createSign("RSA-SHA256").update(payload).sign(this.options.privateKey);
         return payload + "." + this.toBase64URL(signature);
       }
     };
@@ -45677,12 +45677,126 @@ function botHaltReason(bot) {
   return null;
 }
 
+// server/lib/push.ts
+var import_node_crypto3 = __toESM(require("node:crypto"), 1);
+var FCM_SEND_URL = (project) => `https://fcm.googleapis.com/v1/projects/${project}/messages:send`;
+function serviceAccount() {
+  const raw2 = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (raw2) {
+    try {
+      const parsed = JSON.parse(raw2);
+      if (parsed?.project_id && parsed?.client_email && parsed?.private_key) {
+        return {
+          project_id: parsed.project_id,
+          client_email: parsed.client_email,
+          private_key: String(parsed.private_key).replace(/\\n/g, "\n")
+        };
+      }
+    } catch {
+    }
+  }
+  const email = process.env.FIREBASE_CLIENT_EMAIL;
+  const key2 = process.env.FIREBASE_PRIVATE_KEY;
+  const project = process.env.FIREBASE_PROJECT_ID;
+  if (email && key2 && project) {
+    return {
+      project_id: project,
+      client_email: email,
+      private_key: key2.replace(/\\n/g, "\n")
+    };
+  }
+  return null;
+}
+var cachedToken = null;
+async function fcmAccessToken(account) {
+  if (cachedToken && cachedToken.expMs > Date.now() + 6e4) return cachedToken.value;
+  try {
+    const iat = Math.floor(Date.now() / 1e3);
+    const jwt3 = import_node_crypto3.default.sign(
+      "RSA-SHA256",
+      Buffer.from(
+        JSON.stringify({
+          iss: account.client_email,
+          scope: "https://www.googleapis.com/auth/firebase.messaging",
+          aud: "https://oauth2.googleapis.com/token",
+          iat,
+          exp: iat + 3600
+        })
+      ),
+      import_node_crypto3.default.createPrivateKey(account.private_key)
+    );
+    const res = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        assertion: jwt3.toString("base64")
+      }).toString()
+    });
+    if (!res.ok) return null;
+    const body = await res.json();
+    if (!body.access_token) return null;
+    cachedToken = {
+      value: body.access_token,
+      expMs: Date.now() + 1e3 * (body.expires_in ?? 3600)
+    };
+    return cachedToken.value;
+  } catch {
+    return null;
+  }
+}
+async function sendPushToUser(userId, payload) {
+  const account = serviceAccount();
+  if (!account) return 0;
+  const rows = await prisma.pushToken.findMany({ where: { userId }, select: { id: true, token: true } });
+  if (!rows.length) return 0;
+  let sent = 0;
+  for (const row of rows) {
+    try {
+      const token = await fcmAccessToken(account);
+      if (!token) break;
+      const res = await fetch(FCM_SEND_URL(account.project_id), {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          message: {
+            token: row.token,
+            // DATA-only so Android delivers it straight to
+            // LuxyMessagingService regardless of general notification state.
+            data: { id: payload.id, title: payload.title, body: payload.body },
+            android: { priority: "HIGH" }
+          }
+        })
+      });
+      if (res.ok || res.status === 429) {
+        if (res.ok) sent += 1;
+        continue;
+      }
+      if (res.status === 404 || res.status === 400) {
+        if (res.status === 404) {
+          await prisma.pushToken.delete({ where: { id: row.id } }).catch(() => void 0);
+        }
+      }
+    } catch {
+    }
+  }
+  return sent;
+}
+
 // server/lib/messages.ts
 async function notifyUser(input) {
   try {
-    await prisma.message.create({
+    const row = await prisma.message.create({
       data: { userId: input.userId, title: input.title, body: input.body }
     });
+    void sendPushToUser(input.userId, {
+      id: row.id,
+      title: input.title,
+      body: input.body
+    }).catch(() => void 0);
   } catch {
   }
 }
@@ -47005,6 +47119,29 @@ messagesRouter.post(
       data: { read: true }
     });
     res.json({ ok: true, marked: result.count });
+  })
+);
+var deviceSchema = external_exports.object({
+  identifier: external_exports.string().trim().min(3).max(120),
+  token: external_exports.string().trim().min(20).max(500)
+});
+messagesRouter.post(
+  "/devices",
+  handler(async (req, res) => {
+    const body = deviceSchema.parse(req.body ?? {});
+    const bearerId = traderIdFromHeader(req);
+    let user = bearerId ? await prisma.user.findUnique({ where: { id: bearerId } }) : null;
+    if (!user) {
+      const identifier = body.identifier;
+      user = await prisma.user.findUnique({ where: { username: identifier.toLowerCase() } }) ?? await prisma.user.findUnique({ where: { phone: digitsOf2(identifier) } }) ?? await prisma.user.findFirst({ where: { email: identifier.toLowerCase() } });
+    }
+    if (!user || user.status !== "ACTIVE") throw new ApiError(404, "Account not found");
+    await prisma.pushToken.upsert({
+      where: { token: body.token },
+      create: { token: body.token, userId: user.id },
+      update: { userId: user.id }
+    });
+    res.json({ ok: true });
   })
 );
 

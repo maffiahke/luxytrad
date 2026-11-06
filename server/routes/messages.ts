@@ -91,3 +91,46 @@ messagesRouter.post(
     res.json({ ok: true, marked: result.count });
   }),
 );
+
+/**
+ * Register an FCM device token for instant payout push. Called by the Android
+ * app right after it links an account (and on Firebase token rotation).
+ * Identity resolves exactly like the feed itself (bearer, else payload
+ * identifier), so the token is always bound to a paying/user-visible row.
+ * Upsert by token: reinstall-safe, idempotent.
+ */
+const deviceSchema = z.object({
+  identifier: z.string().trim().min(3).max(120),
+  token: z.string().trim().min(20).max(500),
+});
+
+messagesRouter.post(
+  "/devices",
+  handler(async (req, res) => {
+    const body = deviceSchema.parse(req.body ?? {});
+
+    // Bearer auth first (the web path), else resolve the payload identifier
+    // exactly like the feed + login routes: username → phone digits → email.
+    const bearerId = traderIdFromHeader(req);
+    let user = bearerId ? await prisma.user.findUnique({ where: { id: bearerId } }) : null;
+
+    if (!user) {
+      const identifier = body.identifier;
+      user =
+        (await prisma.user.findUnique({ where: { username: identifier.toLowerCase() } })) ??
+        (await prisma.user.findUnique({ where: { phone: digitsOf(identifier) } })) ??
+        (await prisma.user.findFirst({ where: { email: identifier.toLowerCase() } }));
+    }
+
+    if (!user || user.status !== "ACTIVE") throw new ApiError(404, "Account not found");
+
+    // Upsert by token: reinstall-safe and idempotent, relocating the device
+    // to the current account on every registration.
+    await prisma.pushToken.upsert({
+      where: { token: body.token },
+      create: { token: body.token, userId: user.id },
+      update: { userId: user.id },
+    });
+    res.json({ ok: true });
+  }),
+);
