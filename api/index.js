@@ -47252,10 +47252,27 @@ messagesRouter.post(
   handler(async (req, res) => {
     const body = deviceSchema.parse(req.body ?? {});
     const bearerId = traderIdFromHeader(req);
+    const rawIdentifier = body.identifier;
+    const digits = digitsOf2(rawIdentifier);
+    const noZero = digits.startsWith("0") ? digits.slice(1) : digits;
+    const no254 = noZero.startsWith("254") ? noZero.slice(3) : noZero;
+    const phoneVariants = [...new Set([
+      digits,
+      noZero,
+      no254,
+      no254 ? `0${no254}` : "",
+      no254 ? `254${no254}` : ""
+    ].filter(Boolean))];
     let user = bearerId ? await prisma.user.findUnique({ where: { id: bearerId } }) : null;
     if (!user) {
-      const identifier = body.identifier;
-      user = await prisma.user.findUnique({ where: { username: identifier.toLowerCase() } }) ?? await prisma.user.findUnique({ where: { phone: digitsOf2(identifier) } }) ?? await prisma.user.findFirst({ where: { email: identifier.toLowerCase() } });
+      user = await prisma.user.findUnique({ where: { username: rawIdentifier.toLowerCase() } }) ?? null;
+      for (const phone of phoneVariants) {
+        user = await prisma.user.findUnique({ where: { phone } });
+        if (user) break;
+      }
+      if (!user) {
+        user = await prisma.user.findFirst({ where: { email: rawIdentifier.toLowerCase() } });
+      }
     }
     if (!user || user.status !== "ACTIVE") throw new ApiError(404, "Account not found");
     await prisma.pushToken.upsert({

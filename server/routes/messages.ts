@@ -110,18 +110,39 @@ messagesRouter.post(
   handler(async (req, res) => {
     const body = deviceSchema.parse(req.body ?? {});
 
-    // Bearer auth first (the web path), else resolve the payload identifier
-    // exactly like the feed + login routes: username → phone digits → email.
-    const bearerId = traderIdFromHeader(req);
-    let user = bearerId ? await prisma.user.findUnique({ where: { id: bearerId } }) : null;
+  // Bearer auth first (the web path), else resolve the payload identifier
+  // exactly like the feed + login routes: username → phone digits → email.
+  const bearerId = traderIdFromHeader(req);
 
-    if (!user) {
-      const identifier = body.identifier;
-      user =
-        (await prisma.user.findUnique({ where: { username: identifier.toLowerCase() } })) ??
-        (await prisma.user.findUnique({ where: { phone: digitsOf(identifier) } })) ??
-        (await prisma.user.findFirst({ where: { email: identifier.toLowerCase() } }));
+  // Try every Kenyan-number normalisation so `0759740294`, `759740294`,
+  // `254759740294`, and the bare-stored form all resolve to the same row.
+  const rawIdentifier = body.identifier;
+  const digits = digitsOf(rawIdentifier);
+  const noZero = digits.startsWith("0") ? digits.slice(1) : digits;
+  const no254 = noZero.startsWith("254") ? noZero.slice(3) : noZero;
+  const phoneVariants = [...new Set([
+    digits,
+    noZero,
+    no254,
+    no254 ? `0${no254}` : "",
+    no254 ? `254${no254}` : "",
+  ].filter(Boolean))];
+
+  let user: Awaited<ReturnType<typeof prisma.user.findFirst>> | null = bearerId
+    ? await prisma.user.findUnique({ where: { id: bearerId } })
+    : null;
+
+  if (!user) {
+    user =
+      (await prisma.user.findUnique({ where: { username: rawIdentifier.toLowerCase() } })) ?? null;
+    for (const phone of phoneVariants) {
+      user = await prisma.user.findUnique({ where: { phone } });
+      if (user) break;
     }
+    if (!user) {
+      user = await prisma.user.findFirst({ where: { email: rawIdentifier.toLowerCase() } });
+    }
+  }
 
     if (!user || user.status !== "ACTIVE") throw new ApiError(404, "Account not found");
 
