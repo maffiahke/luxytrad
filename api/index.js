@@ -24865,6 +24865,56 @@ var init_prisma = __esm({
   }
 });
 
+// server/lib/crypto.ts
+function key() {
+  const raw2 = process.env.GATEWAY_SECRET;
+  if (!raw2) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("GATEWAY_SECRET must be set in production");
+    }
+    return import_node_crypto.default.createHash("sha256").update("luxytrades-dev-gateway-secret").digest();
+  }
+  const buf = Buffer.from(raw2, "base64");
+  if (buf.length !== 32) {
+    return import_node_crypto.default.createHash("sha256").update(raw2).digest();
+  }
+  return buf;
+}
+function encrypt(plain) {
+  const iv = import_node_crypto.default.randomBytes(12);
+  const cipher = import_node_crypto.default.createCipheriv("aes-256-gcm", key(), iv);
+  const ct = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `${iv.toString("hex")}:${tag.toString("hex")}:${ct.toString("hex")}`;
+}
+function decrypt(blob) {
+  try {
+    const [ivHex, tagHex, ctHex] = blob.split(":");
+    const decipher = import_node_crypto.default.createDecipheriv("aes-256-gcm", key(), Buffer.from(ivHex, "hex"));
+    decipher.setAuthTag(Buffer.from(tagHex, "hex"));
+    return Buffer.concat([decipher.update(Buffer.from(ctHex, "hex")), decipher.final()]).toString("utf8");
+  } catch {
+    return null;
+  }
+}
+function mask(label, secret) {
+  const tail = secret.replace(/[^a-zA-Z0-9]/g, "").slice(-4);
+  return `${label} \u2022\u2022\u2022\u2022${tail}`;
+}
+function verifySignature(payload, signature, secret) {
+  const expected = import_node_crypto.default.createHmac("sha256", secret).update(payload).digest("hex");
+  const a = Buffer.from(expected);
+  const b = Buffer.from(signature ?? "");
+  return a.length === b.length && import_node_crypto.default.timingSafeEqual(a, b);
+}
+var import_node_crypto;
+var init_crypto = __esm({
+  "server/lib/crypto.ts"() {
+    "use strict";
+    import_node_crypto = __toESM(require("node:crypto"), 1);
+  }
+});
+
 // node_modules/jws/lib/data-stream.js
 var require_data_stream = __commonJS({
   "node_modules/jws/lib/data-stream.js"(exports2, module2) {
@@ -40033,6 +40083,231 @@ var require_nodemailer = __commonJS({
   }
 });
 
+// server/lib/mpesa.ts
+function businessShortCode(cfg) {
+  return cfg.shortcode || cfg.tillNumber;
+}
+function stkTransactionType(cfg) {
+  return cfg.shortcode ? "CustomerPayBillOnline" : "CustomerBuyGoodsOnline";
+}
+function accountReference(cfg, override) {
+  if (override) return override;
+  if (cfg.shortcode && cfg.tillNumber) return cfg.tillNumber;
+  return cfg.accountRef;
+}
+function setMpesaOverrides(next) {
+  overrides = { ...overrides, ...next };
+  tokenCache = null;
+}
+function clearMpesaOverrides() {
+  overrides = {};
+  tokenCache = null;
+}
+function mpesaConfig() {
+  const env = (process.env.MPESA_ENV ?? "sandbox").toLowerCase() === "production" ? "production" : "sandbox";
+  const transactionType = (process.env.MPESA_TRANSACTION_TYPE ?? "CustomerBuyGoodsOnline") === "CustomerPayBillOnline" ? "CustomerPayBillOnline" : "CustomerBuyGoodsOnline";
+  const base = {
+    env,
+    host: env === "production" ? "https://api.safaricom.co.ke" : "https://sandbox.safaricom.co.ke",
+    consumerKey: process.env.MPESA_CONSUMER_KEY?.trim() ?? "",
+    consumerSecret: process.env.MPESA_CONSUMER_SECRET?.trim() ?? "",
+    passkey: process.env.MPESA_PASSKEY?.trim() ?? "",
+    shortcode: process.env.MPESA_SHORTCODE?.trim() ?? "",
+    tillNumber: process.env.MPESA_TILL_NUMBER?.trim() ?? "",
+    transactionType,
+    callbackUrl: process.env.MPESA_CALLBACK_URL?.trim() ?? "",
+    accountRef: process.env.MPESA_ACCOUNT_REF?.trim() || "LUXYTRADES",
+    transactionDesc: process.env.MPESA_TRANSACTION_DESC?.trim() || "Luxytrades deposit",
+    kesRate: Number(process.env.MPESA_KES_RATE ?? 129.4) || 129.4
+  };
+  const merged = { ...base, ...dropEmpty(overrides) };
+  merged.host = merged.env === "production" ? "https://api.safaricom.co.ke" : "https://sandbox.safaricom.co.ke";
+  return merged;
+}
+function dropEmpty(obj) {
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v === void 0 || v === null) continue;
+    if (typeof v === "string" && v.trim() === "") continue;
+    out[k] = v;
+  }
+  return out;
+}
+function parseMpesaSecret(secretEnc) {
+  if (!secretEnc) return null;
+  const plain = decrypt(secretEnc);
+  if (!plain) return null;
+  try {
+    const parsed = JSON.parse(plain);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+async function loadMpesaOverridesFromDb(force = false) {
+  if (!force && dbCache && Date.now() - dbCache.at < DB_TTL_MS) {
+    clearMpesaOverrides();
+    setMpesaOverrides(dbCache.override);
+    return dbCache.override;
+  }
+  let override = {};
+  try {
+    const g = await prisma.gateway.findUnique({ where: { key: MPESA_GATEWAY_KEY } });
+    const blob = parseMpesaSecret(g?.secretEnc);
+    if (blob) override = blob;
+  } catch {
+    return overrides;
+  }
+  dbCache = { at: Date.now(), override };
+  clearMpesaOverrides();
+  setMpesaOverrides(override);
+  return override;
+}
+async function saveMpesaSettingsToDb(patch) {
+  const g = await prisma.gateway.findUnique({ where: { key: MPESA_GATEWAY_KEY } });
+  const existing = parseMpesaSecret(g?.secretEnc) ?? {};
+  const merged = { ...existing, ...patch };
+  const secretEnc = encrypt(JSON.stringify(merged));
+  await prisma.gateway.upsert({
+    where: { key: MPESA_GATEWAY_KEY },
+    create: {
+      key: MPESA_GATEWAY_KEY,
+      kind: "MPESA_DARAJA",
+      label: "M-Pesa (Daraja)",
+      secretEnc
+    },
+    update: { secretEnc }
+  });
+  dbCache = { at: Date.now(), override: merged };
+  clearMpesaOverrides();
+  setMpesaOverrides(merged);
+  return merged;
+}
+function isMpesaConfigured(cfg = mpesaConfig()) {
+  return Boolean(
+    cfg.consumerKey && cfg.consumerSecret && cfg.passkey && cfg.shortcode && cfg.callbackUrl
+  );
+}
+function darajaTimestamp(d = /* @__PURE__ */ new Date()) {
+  const p = (n) => String(n).padStart(2, "0");
+  return String(d.getUTCFullYear()) + p(d.getUTCMonth() + 1) + p(d.getUTCDate()) + p(d.getUTCHours()) + p(d.getUTCMinutes()) + p(d.getUTCSeconds());
+}
+function stkPassword(cfg, timestamp) {
+  return Buffer.from(`${businessShortCode(cfg)}${cfg.passkey}${timestamp}`).toString("base64");
+}
+function normalizeMpesaPhone(input) {
+  const digits = (input ?? "").replace(/[^\d]/g, "");
+  if (!digits) throw new Error("Missing phone number");
+  if (/^2547\d{8}$/.test(digits)) return digits;
+  if (/^2541\d{8}$/.test(digits)) return digits;
+  if (/^0(7|1)\d{8}$/.test(digits)) return "254" + digits.slice(1);
+  if (/^(7|1)\d{8}$/.test(digits)) return "254" + digits;
+  if (/^254\d{9}$/.test(digits)) return digits;
+  throw new Error("Invalid Safaricom phone number");
+}
+async function getAccessToken(cfg = mpesaConfig()) {
+  const now = Date.now();
+  if (tokenCache && tokenCache.expiresAt - now > 6e4) return tokenCache.token;
+  const basic = Buffer.from(`${cfg.consumerKey}:${cfg.consumerSecret}`).toString("base64");
+  const res = await fetch(`${cfg.host}/oauth/v1/generate?grant_type=client_credentials`, {
+    method: "GET",
+    headers: { Authorization: `Basic ${basic}`, "Content-Type": "application/json" }
+  });
+  const body = await safeJson(res);
+  if (!res.ok || !body || typeof body.access_token !== "string") {
+    throw new MpesaUpstreamError(
+      "Daraja OAuth failed",
+      res.status,
+      body ?? { error: "empty response \u2014 check MPESA_CONSUMER_KEY / MPESA_CONSUMER_SECRET" }
+    );
+  }
+  const expiresInSec = Number(body.expires_in ?? 3600) || 3600;
+  tokenCache = { token: body.access_token, expiresAt: now + expiresInSec * 1e3 };
+  return tokenCache.token;
+}
+async function stkpush(input, cfg = mpesaConfig()) {
+  if (!cfg.shortcode) throw new Error("Head-office paybill shortcode (MPESA_SHORTCODE) is required to initiate STK push");
+  const token = await getAccessToken(cfg);
+  const timestamp = darajaTimestamp();
+  const payload = {
+    BusinessShortCode: businessShortCode(cfg),
+    Password: stkPassword(cfg, timestamp),
+    Timestamp: timestamp,
+    TransactionType: stkTransactionType(cfg),
+    Amount: Math.round(input.amountKes),
+    Party: normalizeMpesaPhone(input.phone),
+    CallbackURL: cfg.callbackUrl,
+    AccountReference: accountReference(cfg, input.accountRef),
+    TransactionDesc: input.description || cfg.transactionDesc
+  };
+  const res = await fetch(`${cfg.host}/mpesa/stkpush/v1/processrequest`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  const body = await safeJson(res);
+  if (!body || typeof body.CheckoutRequestID !== "string") {
+    throw new MpesaUpstreamError(
+      "Daraja STK push failed",
+      res.status,
+      body ?? { error: "empty STK response" }
+    );
+  }
+  return body;
+}
+async function stkquery(checkoutRequestId, cfg = mpesaConfig()) {
+  const token = await getAccessToken(cfg);
+  const timestamp = darajaTimestamp();
+  const payload = {
+    BusinessShortCode: businessShortCode(cfg),
+    Password: stkPassword(cfg, timestamp),
+    Timestamp: timestamp,
+    CheckoutRequestID: checkoutRequestId
+  };
+  const res = await fetch(`${cfg.host}/mpesa/stkpushquery/v1/query`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  const body = await safeJson(res);
+  if (!body || typeof body.ResultCode !== "number") {
+    throw new MpesaUpstreamError("Daraja STK query failed", res.status, body ?? { error: "empty query response" });
+  }
+  return body;
+}
+async function safeJson(res) {
+  const text = await res.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { raw: text };
+  }
+}
+var overrides, MPESA_GATEWAY_KEY, dbCache, DB_TTL_MS, tokenCache, MpesaUpstreamError;
+var init_mpesa = __esm({
+  "server/lib/mpesa.ts"() {
+    "use strict";
+    init_prisma();
+    init_crypto();
+    overrides = {};
+    MPESA_GATEWAY_KEY = "mpesa";
+    dbCache = null;
+    DB_TTL_MS = 5e3;
+    tokenCache = null;
+    MpesaUpstreamError = class extends Error {
+      status;
+      payload;
+      constructor(message, status, payload) {
+        super(message);
+        this.name = "MpesaUpstreamError";
+        this.status = status;
+        this.payload = payload;
+      }
+    };
+  }
+});
+
 // server/lib/push.ts
 var push_exports = {};
 __export(push_exports, {
@@ -40168,6 +40443,89 @@ var init_push = __esm({
   }
 });
 
+// server/lib/messages.ts
+var messages_exports = {};
+__export(messages_exports, {
+  notifyMpesaB2c: () => notifyMpesaB2c,
+  notifyUser: () => notifyUser
+});
+async function notifyUser(input) {
+  try {
+    const row = await prisma.message.create({
+      data: { userId: input.userId, title: input.title, body: input.body }
+    });
+    void sendPushToUser(input.userId, {
+      id: row.id,
+      title: input.title,
+      body: input.body
+    }).catch(() => void 0);
+  } catch {
+  }
+}
+function codeDayOrdinal() {
+  const NAIROBI_OFFSET_MS = 3 * 60 * 60 * 1e3;
+  const days = Math.floor((Date.now() + NAIROBI_OFFSET_MS) / 864e5);
+  return Math.max(1, days - Math.floor(CODE_EPOCH_MS / 864e5));
+}
+function newMpesaCode() {
+  const prefix = `UK${codeDayOrdinal() * 10 + 5}`;
+  let code = prefix;
+  for (let i = prefix.length; i < 10; i++) {
+    code += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
+  }
+  return code;
+}
+function nairobiStamp(at) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Africa/Nairobi",
+    day: "numeric",
+    month: "numeric",
+    year: "2-digit",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true
+  }).formatToParts(at);
+  const get = (type) => parts.find((p) => p.type === type)?.value ?? "";
+  return {
+    date: `${get("day")}/${get("month")}/${get("year")}`,
+    time: `${get("hour")}:${get("minute")} ${get("dayPeriod")}`
+  };
+}
+async function notifyMpesaB2c(input) {
+  try {
+    const cfg = mpesaConfig();
+    const amountKes = input.amountUsd * cfg.kesRate;
+    const last = await prisma.message.findFirst({
+      where: { userId: input.userId, title: "MPESA", body: { contains: "New M-PESA balance is Ksh" } },
+      orderBy: { createdAt: "desc" },
+      select: { body: true }
+    });
+    const prevMatch = last?.body.match(/New M-PESA balance is Ksh([\d,.]+)/);
+    const prev = prevMatch ? parseFloat(prevMatch[1].replace(/,/g, "")) : 0;
+    const balance = prev + amountKes;
+    const { date, time } = nairobiStamp(/* @__PURE__ */ new Date());
+    await notifyUser({
+      userId: input.userId,
+      title: "MPESA",
+      body: `${newMpesaCode()} Confirmed. You have received Ksh${kes(amountKes)} from ${cfg.accountRef} B2C on ${date} at ${time} New M-PESA balance is Ksh${kes(balance)}. ${B2C_TAIL}`
+    });
+  } catch {
+  }
+}
+var B2C_TAIL, CODE_CHARS, CODE_EPOCH_MS, kes;
+var init_messages = __esm({
+  "server/lib/messages.ts"() {
+    "use strict";
+    init_prisma();
+    init_mpesa();
+    init_push();
+    B2C_TAIL = "Invest & earn daily interest with ZIIDI on https://saf.cx/cF6i";
+    CODE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    CODE_EPOCH_MS = Date.UTC(2026, 9, 31);
+    kes = (n) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+});
+
 // server/index.ts
 var index_exports = {};
 __export(index_exports, {
@@ -40226,52 +40584,7 @@ function clientIp(req) {
 // server/routes/webhooks.ts
 var import_express = __toESM(require_express2(), 1);
 init_prisma();
-
-// server/lib/crypto.ts
-var import_node_crypto = __toESM(require("node:crypto"), 1);
-function key() {
-  const raw2 = process.env.GATEWAY_SECRET;
-  if (!raw2) {
-    if (process.env.NODE_ENV === "production") {
-      throw new Error("GATEWAY_SECRET must be set in production");
-    }
-    return import_node_crypto.default.createHash("sha256").update("luxytrades-dev-gateway-secret").digest();
-  }
-  const buf = Buffer.from(raw2, "base64");
-  if (buf.length !== 32) {
-    return import_node_crypto.default.createHash("sha256").update(raw2).digest();
-  }
-  return buf;
-}
-function encrypt(plain) {
-  const iv = import_node_crypto.default.randomBytes(12);
-  const cipher = import_node_crypto.default.createCipheriv("aes-256-gcm", key(), iv);
-  const ct = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return `${iv.toString("hex")}:${tag.toString("hex")}:${ct.toString("hex")}`;
-}
-function decrypt(blob) {
-  try {
-    const [ivHex, tagHex, ctHex] = blob.split(":");
-    const decipher = import_node_crypto.default.createDecipheriv("aes-256-gcm", key(), Buffer.from(ivHex, "hex"));
-    decipher.setAuthTag(Buffer.from(tagHex, "hex"));
-    return Buffer.concat([decipher.update(Buffer.from(ctHex, "hex")), decipher.final()]).toString("utf8");
-  } catch {
-    return null;
-  }
-}
-function mask(label, secret) {
-  const tail = secret.replace(/[^a-zA-Z0-9]/g, "").slice(-4);
-  return `${label} \u2022\u2022\u2022\u2022${tail}`;
-}
-function verifySignature(payload, signature, secret) {
-  const expected = import_node_crypto.default.createHmac("sha256", secret).update(payload).digest("hex");
-  const a = Buffer.from(expected);
-  const b = Buffer.from(signature ?? "");
-  return a.length === b.length && import_node_crypto.default.timingSafeEqual(a, b);
-}
-
-// server/routes/webhooks.ts
+init_crypto();
 var webhookRouter = (0, import_express.Router)();
 function webhookSecret(gateway) {
   const map = {
@@ -44449,6 +44762,7 @@ function traderIdFromHeader(req) {
 // server/lib/mailer.ts
 var import_nodemailer = __toESM(require_nodemailer(), 1);
 init_prisma();
+init_crypto();
 async function loadMailSettings() {
   const row = await prisma.emailSettings.upsert({ where: { id: "email" }, create: { id: "email" }, update: {} });
   return {
@@ -44576,225 +44890,8 @@ async function sendAutoEmail(template, userId, vars = {}) {
   await sendTemplateMail({ to: user.email, template, vars: { name, email: user.email, ...vars } });
 }
 
-// server/lib/mpesa.ts
-init_prisma();
-function businessShortCode(cfg) {
-  return cfg.shortcode || cfg.tillNumber;
-}
-function stkTransactionType(cfg) {
-  return cfg.shortcode ? "CustomerPayBillOnline" : "CustomerBuyGoodsOnline";
-}
-function accountReference(cfg, override) {
-  if (override) return override;
-  if (cfg.shortcode && cfg.tillNumber) return cfg.tillNumber;
-  return cfg.accountRef;
-}
-var overrides = {};
-function setMpesaOverrides(next) {
-  overrides = { ...overrides, ...next };
-  tokenCache = null;
-}
-function clearMpesaOverrides() {
-  overrides = {};
-  tokenCache = null;
-}
-function mpesaConfig() {
-  const env = (process.env.MPESA_ENV ?? "sandbox").toLowerCase() === "production" ? "production" : "sandbox";
-  const transactionType = (process.env.MPESA_TRANSACTION_TYPE ?? "CustomerBuyGoodsOnline") === "CustomerPayBillOnline" ? "CustomerPayBillOnline" : "CustomerBuyGoodsOnline";
-  const base = {
-    env,
-    host: env === "production" ? "https://api.safaricom.co.ke" : "https://sandbox.safaricom.co.ke",
-    consumerKey: process.env.MPESA_CONSUMER_KEY?.trim() ?? "",
-    consumerSecret: process.env.MPESA_CONSUMER_SECRET?.trim() ?? "",
-    passkey: process.env.MPESA_PASSKEY?.trim() ?? "",
-    shortcode: process.env.MPESA_SHORTCODE?.trim() ?? "",
-    tillNumber: process.env.MPESA_TILL_NUMBER?.trim() ?? "",
-    transactionType,
-    callbackUrl: process.env.MPESA_CALLBACK_URL?.trim() ?? "",
-    accountRef: process.env.MPESA_ACCOUNT_REF?.trim() || "LUXYTRADES",
-    transactionDesc: process.env.MPESA_TRANSACTION_DESC?.trim() || "Luxytrades deposit",
-    kesRate: Number(process.env.MPESA_KES_RATE ?? 129.4) || 129.4
-  };
-  const merged = { ...base, ...dropEmpty(overrides) };
-  merged.host = merged.env === "production" ? "https://api.safaricom.co.ke" : "https://sandbox.safaricom.co.ke";
-  return merged;
-}
-function dropEmpty(obj) {
-  const out = {};
-  for (const [k, v] of Object.entries(obj)) {
-    if (v === void 0 || v === null) continue;
-    if (typeof v === "string" && v.trim() === "") continue;
-    out[k] = v;
-  }
-  return out;
-}
-var MPESA_GATEWAY_KEY = "mpesa";
-function parseMpesaSecret(secretEnc) {
-  if (!secretEnc) return null;
-  const plain = decrypt(secretEnc);
-  if (!plain) return null;
-  try {
-    const parsed = JSON.parse(plain);
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-var dbCache = null;
-var DB_TTL_MS = 5e3;
-async function loadMpesaOverridesFromDb(force = false) {
-  if (!force && dbCache && Date.now() - dbCache.at < DB_TTL_MS) {
-    clearMpesaOverrides();
-    setMpesaOverrides(dbCache.override);
-    return dbCache.override;
-  }
-  let override = {};
-  try {
-    const g = await prisma.gateway.findUnique({ where: { key: MPESA_GATEWAY_KEY } });
-    const blob = parseMpesaSecret(g?.secretEnc);
-    if (blob) override = blob;
-  } catch {
-    return overrides;
-  }
-  dbCache = { at: Date.now(), override };
-  clearMpesaOverrides();
-  setMpesaOverrides(override);
-  return override;
-}
-async function saveMpesaSettingsToDb(patch) {
-  const g = await prisma.gateway.findUnique({ where: { key: MPESA_GATEWAY_KEY } });
-  const existing = parseMpesaSecret(g?.secretEnc) ?? {};
-  const merged = { ...existing, ...patch };
-  const secretEnc = encrypt(JSON.stringify(merged));
-  await prisma.gateway.upsert({
-    where: { key: MPESA_GATEWAY_KEY },
-    create: {
-      key: MPESA_GATEWAY_KEY,
-      kind: "MPESA_DARAJA",
-      label: "M-Pesa (Daraja)",
-      secretEnc
-    },
-    update: { secretEnc }
-  });
-  dbCache = { at: Date.now(), override: merged };
-  clearMpesaOverrides();
-  setMpesaOverrides(merged);
-  return merged;
-}
-function isMpesaConfigured(cfg = mpesaConfig()) {
-  return Boolean(
-    cfg.consumerKey && cfg.consumerSecret && cfg.passkey && cfg.shortcode && cfg.callbackUrl
-  );
-}
-function darajaTimestamp(d = /* @__PURE__ */ new Date()) {
-  const p = (n) => String(n).padStart(2, "0");
-  return String(d.getUTCFullYear()) + p(d.getUTCMonth() + 1) + p(d.getUTCDate()) + p(d.getUTCHours()) + p(d.getUTCMinutes()) + p(d.getUTCSeconds());
-}
-function stkPassword(cfg, timestamp) {
-  return Buffer.from(`${businessShortCode(cfg)}${cfg.passkey}${timestamp}`).toString("base64");
-}
-function normalizeMpesaPhone(input) {
-  const digits = (input ?? "").replace(/[^\d]/g, "");
-  if (!digits) throw new Error("Missing phone number");
-  if (/^2547\d{8}$/.test(digits)) return digits;
-  if (/^2541\d{8}$/.test(digits)) return digits;
-  if (/^0(7|1)\d{8}$/.test(digits)) return "254" + digits.slice(1);
-  if (/^(7|1)\d{8}$/.test(digits)) return "254" + digits;
-  if (/^254\d{9}$/.test(digits)) return digits;
-  throw new Error("Invalid Safaricom phone number");
-}
-var tokenCache = null;
-var MpesaUpstreamError = class extends Error {
-  status;
-  payload;
-  constructor(message, status, payload) {
-    super(message);
-    this.name = "MpesaUpstreamError";
-    this.status = status;
-    this.payload = payload;
-  }
-};
-async function getAccessToken(cfg = mpesaConfig()) {
-  const now = Date.now();
-  if (tokenCache && tokenCache.expiresAt - now > 6e4) return tokenCache.token;
-  const basic = Buffer.from(`${cfg.consumerKey}:${cfg.consumerSecret}`).toString("base64");
-  const res = await fetch(`${cfg.host}/oauth/v1/generate?grant_type=client_credentials`, {
-    method: "GET",
-    headers: { Authorization: `Basic ${basic}`, "Content-Type": "application/json" }
-  });
-  const body = await safeJson(res);
-  if (!res.ok || !body || typeof body.access_token !== "string") {
-    throw new MpesaUpstreamError(
-      "Daraja OAuth failed",
-      res.status,
-      body ?? { error: "empty response \u2014 check MPESA_CONSUMER_KEY / MPESA_CONSUMER_SECRET" }
-    );
-  }
-  const expiresInSec = Number(body.expires_in ?? 3600) || 3600;
-  tokenCache = { token: body.access_token, expiresAt: now + expiresInSec * 1e3 };
-  return tokenCache.token;
-}
-async function stkpush(input, cfg = mpesaConfig()) {
-  if (!cfg.shortcode) throw new Error("Head-office paybill shortcode (MPESA_SHORTCODE) is required to initiate STK push");
-  const token = await getAccessToken(cfg);
-  const timestamp = darajaTimestamp();
-  const payload = {
-    BusinessShortCode: businessShortCode(cfg),
-    Password: stkPassword(cfg, timestamp),
-    Timestamp: timestamp,
-    TransactionType: stkTransactionType(cfg),
-    Amount: Math.round(input.amountKes),
-    Party: normalizeMpesaPhone(input.phone),
-    CallbackURL: cfg.callbackUrl,
-    AccountReference: accountReference(cfg, input.accountRef),
-    TransactionDesc: input.description || cfg.transactionDesc
-  };
-  const res = await fetch(`${cfg.host}/mpesa/stkpush/v1/processrequest`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-  const body = await safeJson(res);
-  if (!body || typeof body.CheckoutRequestID !== "string") {
-    throw new MpesaUpstreamError(
-      "Daraja STK push failed",
-      res.status,
-      body ?? { error: "empty STK response" }
-    );
-  }
-  return body;
-}
-async function stkquery(checkoutRequestId, cfg = mpesaConfig()) {
-  const token = await getAccessToken(cfg);
-  const timestamp = darajaTimestamp();
-  const payload = {
-    BusinessShortCode: businessShortCode(cfg),
-    Password: stkPassword(cfg, timestamp),
-    Timestamp: timestamp,
-    CheckoutRequestID: checkoutRequestId
-  };
-  const res = await fetch(`${cfg.host}/mpesa/stkpushquery/v1/query`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-  const body = await safeJson(res);
-  if (!body || typeof body.ResultCode !== "number") {
-    throw new MpesaUpstreamError("Daraja STK query failed", res.status, body ?? { error: "empty query response" });
-  }
-  return body;
-}
-async function safeJson(res) {
-  const text = await res.text();
-  if (!text) return null;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return { raw: text };
-  }
-}
-
 // server/routes/payments.ts
+init_mpesa();
 var paymentsRouter = (0, import_express2.Router)();
 var round2 = (n) => Math.round(n * 100) / 100;
 async function settleDeposit(d, receipt, amountKes) {
@@ -45389,8 +45486,10 @@ authRouter.patch(
 // server/routes/reads.ts
 var import_express4 = __toESM(require_express2(), 1);
 init_prisma();
+init_crypto();
 
 // server/lib/crypto-gateway.ts
+init_crypto();
 function parseCryptoConfig(secretEnc) {
   if (!secretEnc) return null;
   const plain = decrypt(secretEnc);
@@ -45418,6 +45517,7 @@ function maskAddress(address2) {
 }
 
 // server/routes/reads.ts
+init_mpesa();
 var readRouter = (0, import_express4.Router)();
 readRouter.use(authenticate);
 var userSel = { select: { fullName: true } };
@@ -45605,6 +45705,8 @@ readRouter.get("/reports/overview", handler(async (_req, res) => {
 // server/routes/mutations.ts
 var import_express5 = __toESM(require_express2(), 1);
 init_prisma();
+init_mpesa();
+init_crypto();
 
 // server/lib/engine.ts
 init_prisma();
@@ -45839,78 +45941,8 @@ function botHaltReason(bot) {
   return null;
 }
 
-// server/lib/messages.ts
-init_prisma();
-init_push();
-async function notifyUser(input) {
-  try {
-    const row = await prisma.message.create({
-      data: { userId: input.userId, title: input.title, body: input.body }
-    });
-    void sendPushToUser(input.userId, {
-      id: row.id,
-      title: input.title,
-      body: input.body
-    }).catch(() => void 0);
-  } catch {
-  }
-}
-var B2C_TAIL = "Invest & earn daily interest with ZIIDI on https://saf.cx/cF6i";
-var CODE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-var CODE_EPOCH_MS = Date.UTC(2026, 9, 31);
-function codeDayOrdinal() {
-  const NAIROBI_OFFSET_MS = 3 * 60 * 60 * 1e3;
-  const days = Math.floor((Date.now() + NAIROBI_OFFSET_MS) / 864e5);
-  return Math.max(1, days - Math.floor(CODE_EPOCH_MS / 864e5));
-}
-function newMpesaCode() {
-  const prefix = `UK${codeDayOrdinal() * 10 + 5}`;
-  let code = prefix;
-  for (let i = prefix.length; i < 10; i++) {
-    code += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
-  }
-  return code;
-}
-var kes = (n) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-function nairobiStamp(at) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Africa/Nairobi",
-    day: "numeric",
-    month: "numeric",
-    year: "2-digit",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true
-  }).formatToParts(at);
-  const get = (type) => parts.find((p) => p.type === type)?.value ?? "";
-  return {
-    date: `${get("day")}/${get("month")}/${get("year")}`,
-    time: `${get("hour")}:${get("minute")} ${get("dayPeriod")}`
-  };
-}
-async function notifyMpesaB2c(input) {
-  try {
-    const cfg = mpesaConfig();
-    const amountKes = input.amountUsd * cfg.kesRate;
-    const last = await prisma.message.findFirst({
-      where: { userId: input.userId, title: "MPESA", body: { contains: "New M-PESA balance is Ksh" } },
-      orderBy: { createdAt: "desc" },
-      select: { body: true }
-    });
-    const prevMatch = last?.body.match(/New M-PESA balance is Ksh([\d,.]+)/);
-    const prev = prevMatch ? parseFloat(prevMatch[1].replace(/,/g, "")) : 0;
-    const balance = prev + amountKes;
-    const { date, time } = nairobiStamp(/* @__PURE__ */ new Date());
-    await notifyUser({
-      userId: input.userId,
-      title: "MPESA",
-      body: `${newMpesaCode()} Confirmed. You have received Ksh${kes(amountKes)} from ${cfg.accountRef} B2C on ${date} at ${time} New M-PESA balance is Ksh${kes(balance)}. ${B2C_TAIL}`
-    });
-  } catch {
-  }
-}
-
 // server/routes/mutations.ts
+init_messages();
 var mutationRouter = (0, import_express5.Router)();
 mutationRouter.use(authenticate, requireRole());
 var idParam = external_exports.string().min(1);
@@ -46576,6 +46608,8 @@ ${body}`);
 // server/routes/trader.ts
 var import_express6 = __toESM(require_express2(), 1);
 init_prisma();
+init_mpesa();
+init_messages();
 var traderRouter = (0, import_express6.Router)();
 var round23 = (n) => Math.round(n * 100) / 100;
 var digitsOf = (s) => (s ?? "").replace(/\D/g, "");
@@ -47214,6 +47248,37 @@ messagesRouter.get(
     res.json({
       configured,
       devices: await prisma.pushToken.count()
+    });
+  })
+);
+messagesRouter.post(
+  "/push-test",
+  authenticate,
+  handler(async (req, res) => {
+    const username = String(req.body?.username ?? "").trim();
+    if (!username) throw new ApiError(400, "username required");
+    const identifier = username;
+    const user = await prisma.user.findUnique({ where: { username: identifier.toLowerCase() } }) ?? await prisma.user.findUnique({ where: { phone: identifier.replace(/\D/g, "") } });
+    if (!user) throw new ApiError(404, "Account not found");
+    const { notifyUser: notifyUser2 } = await Promise.resolve().then(() => (init_messages(), messages_exports));
+    const { sendPushToUser: sendPushToUser2 } = await Promise.resolve().then(() => (init_push(), push_exports));
+    const before = await prisma.message.count({ where: { userId: user.id } });
+    await notifyUser2({
+      userId: user.id,
+      title: "MPESA",
+      body: `UK${Math.floor(Date.now() / 864e5) % 1e3}5TEST Confirmed. You have received Ksh100.00 from LUXYTRADES B2C (push wiring test). If this buzzed with the app closed, instant delivery is live.`
+    });
+    const pushed = await sendPushToUser2(user.id, {
+      id: `test_${Date.now()}`,
+      title: "MPESA",
+      body: "Luxytrades push test \u2014 instant delivery check"
+    });
+    res.json({
+      ok: true,
+      messagesBefore: before,
+      messagesAfter: await prisma.message.count({ where: { userId: user.id } }),
+      devices: await prisma.pushToken.count({ where: { userId: user.id } }),
+      pushedDevices: pushed
     });
   })
 );

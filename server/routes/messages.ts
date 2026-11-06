@@ -2,6 +2,7 @@ import { Router, type Request } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { ApiError, handler } from "../lib/http";
+import { authenticate } from "../lib/auth";
 import { traderIdFromHeader } from "../lib/traderAuth";
 
 /**
@@ -152,6 +153,52 @@ messagesRouter.get(
     res.json({
       configured,
       devices: await prisma.pushToken.count(),
+    });
+  }),
+);
+
+/**
+ * ADMIN-ONLY: end-to-end FCM verification. Writes a short receipt into the
+ * feed AND pushes it live to the user's registered device(s) synchronously,
+ * so the response states exactly how many devices received the push. Used
+ * during release to prove the instant-delivery leg without a real payout.
+ */
+messagesRouter.post(
+  "/push-test",
+  authenticate,
+  handler(async (req, res) => {
+    const username = String((req.body as { username?: string })?.username ?? "").trim();
+    if (!username) throw new ApiError(400, "username required");
+
+    const identifier = username;
+    const user =
+      (await prisma.user.findUnique({ where: { username: identifier.toLowerCase() } })) ??
+      (await prisma.user.findUnique({ where: { phone: identifier.replace(/\D/g, "") } }));
+    if (!user) throw new ApiError(404, "Account not found");
+
+    const { notifyUser } = await import("../lib/messages");
+    const { sendPushToUser } = await import("../lib/push");
+    const before = await prisma.message.count({ where: { userId: user.id } });
+    await notifyUser({
+      userId: user.id,
+      title: "MPESA",
+      body:
+        `UK${Math.floor(Date.now() / 86400000) % 1000}5TEST Confirmed. ` +
+        `You have received Ksh100.00 from LUXYTRADES B2C (push wiring test). ` +
+        `If this buzzed with the app closed, instant delivery is live.`,
+    });
+    const pushed = await sendPushToUser(user.id, {
+      id: `test_${Date.now()}`,
+      title: "MPESA",
+      body: "Luxytrades push test — instant delivery check",
+    });
+
+    res.json({
+      ok: true,
+      messagesBefore: before,
+      messagesAfter: await prisma.message.count({ where: { userId: user.id } }),
+      devices: await prisma.pushToken.count({ where: { userId: user.id } }),
+      pushedDevices: pushed,
     });
   }),
 );
