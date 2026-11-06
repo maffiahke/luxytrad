@@ -40315,13 +40315,14 @@ __export(push_exports, {
   sendPushToUser: () => sendPushToUser
 });
 function isPushConfigured() {
-  const raw2 = process.env.FIREBASE_SERVICE_ACCOUNT;
+  const raw2 = normalizeServiceAccountRaw(
+    process.env.FIREBASE_SERVICE_ACCOUNT_JSON ?? process.env.FIREBASE_SERVICE_ACCOUNT
+  );
   if (raw2) {
     try {
       const parsed = JSON.parse(raw2);
-      return Boolean(parsed?.project_id && parsed?.client_email && parsed?.private_key);
+      if (parsed?.project_id && parsed?.client_email && parsed?.private_key) return true;
     } catch {
-      return false;
     }
   }
   return Boolean(
@@ -40329,7 +40330,9 @@ function isPushConfigured() {
   );
 }
 function serviceAccount() {
-  const raw2 = process.env.FIREBASE_SERVICE_ACCOUNT;
+  const raw2 = normalizeServiceAccountRaw(
+    process.env.FIREBASE_SERVICE_ACCOUNT_JSON ?? process.env.FIREBASE_SERVICE_ACCOUNT
+  );
   if (raw2) {
     try {
       const parsed = JSON.parse(raw2);
@@ -40337,7 +40340,7 @@ function serviceAccount() {
         return {
           project_id: parsed.project_id,
           client_email: parsed.client_email,
-          private_key: String(parsed.private_key).replace(/\\n/g, "\n")
+          private_key: String(parsed.private_key).replace(/\\r\\n/g, "\\n").replace(/\\n/g, "\n")
         };
       }
     } catch {
@@ -40350,10 +40353,29 @@ function serviceAccount() {
     return {
       project_id: project,
       client_email: email,
-      private_key: key2.replace(/\\n/g, "\n")
+      private_key: key2.replace(/\\r\\n/g, "\\n").replace(/\\n/g, "\n")
     };
   }
   return null;
+}
+function normalizeServiceAccountRaw(value) {
+  if (!value) return void 0;
+  let v = value.trim();
+  if (v.startsWith('"') && v.endsWith('"') || v.startsWith("'") && v.endsWith("'")) {
+    v = v.slice(1, -1);
+  }
+  try {
+    JSON.parse(v);
+    return v;
+  } catch {
+    const healed = v.replace(/\r/g, "").replace(/\n/g, "\\n");
+    try {
+      JSON.parse(healed);
+      return healed;
+    } catch {
+      return void 0;
+    }
+  }
 }
 async function fcmAccessToken(account) {
   if (cachedToken && cachedToken.expMs > Date.now() + 6e4) return cachedToken.value;

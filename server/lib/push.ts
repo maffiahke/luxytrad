@@ -25,13 +25,16 @@ interface ServiceAccount {
 
 /** Cheap env-only check used by the /api/messages/push-status diagnostic. */
 export function isPushConfigured(): boolean {
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+  const raw = normalizeServiceAccountRaw(
+    process.env.FIREBASE_SERVICE_ACCOUNT_JSON ?? process.env.FIREBASE_SERVICE_ACCOUNT,
+  );
   if (raw) {
     try {
       const parsed = JSON.parse(raw);
-      return Boolean(parsed?.project_id && parsed?.client_email && parsed?.private_key);
+      if (parsed?.project_id && parsed?.client_email && parsed?.private_key) return true;
+      // Valid JSON but incomplete — fall through to the individual vars.
     } catch {
-      return false;
+      /* fall through to individual vars */
     }
   }
   return Boolean(
@@ -43,7 +46,12 @@ export function isPushConfigured(): boolean {
 
 /** Reads and normalises the service account from env. Null when unconfigured. */
 function serviceAccount(): ServiceAccount | null {
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+  // Pasted multi-line JSON mangles in transit surprisingly often (wrapped
+  // quotes, key aliases, CRLF escapes) — every accepted variant is cheap to
+  // normalise, so we try them all before giving up on the whole JSON blob.
+  const raw = normalizeServiceAccountRaw(
+    process.env.FIREBASE_SERVICE_ACCOUNT_JSON ?? process.env.FIREBASE_SERVICE_ACCOUNT,
+  );
   if (raw) {
     try {
       const parsed = JSON.parse(raw);
@@ -51,7 +59,7 @@ function serviceAccount(): ServiceAccount | null {
         return {
           project_id: parsed.project_id,
           client_email: parsed.client_email,
-          private_key: String(parsed.private_key).replace(/\\n/g, "\n"),
+          private_key: String(parsed.private_key).replace(/\\r\\n/g, "\\n").replace(/\\n/g, "\n"),
         };
       }
     } catch {
@@ -65,10 +73,38 @@ function serviceAccount(): ServiceAccount | null {
     return {
       project_id: project,
       client_email: email,
-      private_key: key.replace(/\\n/g, "\n"),
+      private_key: key.replace(/\\r\\n/g, "\\n").replace(/\\n/g, "\n"),
     };
   }
   return null;
+}
+
+/** Normalises the raw env value across common paste-mangling variants. */
+function normalizeServiceAccountRaw(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  let v = value.trim();
+  // Strip a single wrapping pair of quotes (dashboard paste artifacts).
+  if (
+    (v.startsWith('"') && v.endsWith('"')) ||
+    (v.startsWith("'") && v.endsWith("'"))
+  ) {
+    v = v.slice(1, -1);
+  }
+  // Healed JSON: private_key containing literal (escaped) newlines survives,
+  // but a body whose real newlines were collapsed breaks parse — recover by
+  // re-escaping newlines that appear outside the expected places.
+  try {
+    JSON.parse(v);
+    return v;
+  } catch {
+    const healed = v.replace(/\r/g, "").replace(/\n/g, "\\n");
+    try {
+      JSON.parse(healed);
+      return healed;
+    } catch {
+      return undefined;
+    }
+  }
 }
 
 let cachedToken: { value: string; expMs: number } | null = null;
