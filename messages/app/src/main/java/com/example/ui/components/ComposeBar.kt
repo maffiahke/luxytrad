@@ -47,25 +47,32 @@ fun ComposeBar(
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
             if (isServiceSender) {
-                // Slim no-reply notice, like Google Messages: a single rounded
-                // inline bar, no input field / send-SMS strip for service senders.
+                // Minimal no-reply notice pinned at the bottom end, like
+                // Google Messages: slim rounded bar, capped to two short text
+                // lines (the weight() on the message text guarantees the bar
+                // can never grow taller than its content).
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(20.dp))
+                        .clip(RoundedCornerShape(18.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
                         .testTag("service_sender_banner"),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Sender can't accept replies. Contact them directly. ",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = "Sender can't accept replies. Contact them directly.",
+                        fontSize = 12.sp,
+                        lineHeight = 15.sp,
+                        maxLines = 2,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f, fill = false)
                     )
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "Learn more",
-                        fontSize = 13.sp,
+                        fontSize = 12.sp,
+                        maxLines = 1,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.primary,
                         textDecoration = TextDecoration.Underline,
