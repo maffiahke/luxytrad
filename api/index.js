@@ -46985,12 +46985,14 @@ messagesRouter.get(
     res.json({ messages: rows.map(serialize) });
   })
 );
+var readScope = external_exports.object({ title: external_exports.string().trim().min(1).max(64).optional() });
 messagesRouter.post(
   "/read",
   handler(async (req, res) => {
     const user = await resolveFeedUser(req);
+    const { title } = readScope.catch({}).parse(req.body ?? {});
     const result = await prisma.message.updateMany({
-      where: { userId: user.id, read: false },
+      where: { userId: user.id, read: false, ...title ? { title } : {} },
       data: { read: true }
     });
     res.json({ ok: true, marked: result.count });

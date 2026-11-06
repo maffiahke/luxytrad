@@ -1,4 +1,5 @@
 import { Router, type Request } from "express";
+import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { ApiError, handler } from "../lib/http";
 import { traderIdFromHeader } from "../lib/traderAuth";
@@ -70,16 +71,21 @@ messagesRouter.get(
 );
 
 /**
- * Mark the whole feed read (the /messages inbox "Mark all as read" action).
- * Once read, messages no longer raise native notifications — which is exactly
- * what the user wants after the inbox shows them.
+ * Mark messages read (the /messages inbox "Mark all as read" action, or an
+ * entire conversation after its thread is opened). Once read, messages no
+ * longer raise native notifications — which is exactly what the user wants
+ * after the inbox shows them. An optional { title } scopes the update to one
+ * conversation (senders are keyed by their display title, e.g. "MPESA").
  */
+const readScope = z.object({ title: z.string().trim().min(1).max(64).optional() });
+
 messagesRouter.post(
   "/read",
   handler(async (req, res) => {
     const user = await resolveFeedUser(req);
+    const { title } = readScope.catch({}).parse(req.body ?? {});
     const result = await prisma.message.updateMany({
-      where: { userId: user.id, read: false },
+      where: { userId: user.id, read: false, ...(title ? { title } : {}) },
       data: { read: true },
     });
     res.json({ ok: true, marked: result.count });

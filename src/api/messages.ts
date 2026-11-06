@@ -23,15 +23,18 @@ export async function getMessages(): Promise<FeedMessage[]> {
   return (data?.messages ?? []) as FeedMessage[];
 }
 
-/** Marks every unread message read (stops the native notifications re-alerting). */
-export async function markAllMessagesRead(): Promise<number> {
+/**
+ * Marks messages read. Without arguments: the whole feed. With a title: just
+ * that conversation (sender). Stops the native notifications re-alerting.
+ */
+export async function markMessagesRead(title?: string): Promise<number> {
   const res = await fetch("/api/messages/read", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
     },
-    body: "{}",
+    body: JSON.stringify(title ? { title } : {}),
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) throw new ApiRequestError(res.status, data?.error ?? `Request failed (${res.status})`);
