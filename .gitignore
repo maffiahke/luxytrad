@@ -22,5 +22,6 @@ luxytrades.zip
 .vercel/
 *.tsbuildinfo
 
-# generated serverless bundle (produced by `npm run build:api` during build)
-api/index.js
+# NOTE: api/index.js (the esbuild bundle) is intentionally COMMITTED, not ignored.
+# Vercel discovers /api functions from the source tree before buildCommand runs, so
+# the file must exist in git. `npm run build:api` regenerates it for freshness at deploy.
