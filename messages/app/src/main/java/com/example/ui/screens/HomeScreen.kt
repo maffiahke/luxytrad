@@ -55,7 +55,13 @@ fun HomeScreen(
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
-            Column(modifier = Modifier.fillMaxWidth()) {
+            // statusBarsPadding pushes the header below the clock/battery row
+            // instead of rendering squeezed behind the system status bar.
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+            ) {
                 GoogleLogoHeader(
                     selectedCount = selectedThreadIds.size,
                     onClearSelection = onClearSelection,
