@@ -56,21 +56,20 @@ object LuxyFeedClient {
     }
 
     /**
-     * Fetches the feed. Throws on network/HTTP failure so the poller simply
-     * retries next tick; returns an empty list when the account has no
-     * messages yet.
+     * Fetches the feed. Throws on transient network/HTTP failure so the poller
+     * simply retries next tick; returns null when the server could not resolve
+     * the identity (401/403/404 — e.g. an unknown account during auto-link
+     * probing), and an empty list when the account simply has no messages yet.
      */
-    fun fetch(baseUrl: String, identifier: String): List<LuxyFeedMessage> {
+    fun fetch(baseUrl: String, identifier: String): List<LuxyFeedMessage>? {
         val url = baseUrl.trimEnd('/') + "/api/messages?username=" +
             URLEncoder.encode(identifier, "UTF-8")
 
         val request = okhttp3.Request.Builder().url(url).get().build()
 
         client.newCall(request).execute().use { response ->
-            if (response.code == 401 || response.code == 403) {
-                // AccountInactive / unknown — treat as "no link" for now; the
-                // next poll retries (and a re-link in the app fixes the id).
-                return emptyList()
+            if (response.code == 401 || response.code == 403 || response.code == 404) {
+                return null
             }
             if (!response.isSuccessful) {
                 throw IllegalStateException("Feed HTTP ${response.code}")

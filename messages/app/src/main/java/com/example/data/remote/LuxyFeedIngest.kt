@@ -84,6 +84,10 @@ object LuxyFeedIngest {
         if (fresh.isEmpty()) return emptyList()
 
         val buzz: MutableList<LuxyFeedMessage> = mutableListOf()
+        // A receipt that arrived right around install/first-fetch (recent
+        // enough to be "live") still buzzes on the seeding run — only history
+        // older than ~90s stays silent so stale payouts don't flood.
+        val RECENT_WINDOW_MS = 90_000L
 
         for ((title, messages) in fresh.groupBy { it.title }) {
             val threadId = threadIdFor(title)
@@ -106,22 +110,26 @@ object LuxyFeedIngest {
                 )
             }
 
-            // New unread receipts raise the badge only after seeding (first run silent).
-            val newUnread = if (firstRun) 0 else sorted.count { !it.read }
+            // New unread receipts raise the badge; during seeding only the
+            // recent-window ones count (older history arrives silently).
+            val unreadNow = sorted.filter { !it.read }
+            val buzzable = if (firstRun) {
+                unreadNow.filter { System.currentTimeMillis() - it.atMs < RECENT_WINDOW_MS }
+            } else {
+                unreadNow
+            }
             val latest = sorted.last()
             if (existingThread != null) {
                 threadDao.insertOrUpdate(
                     existingThread.copy(
-                        unreadCount = existingThread.unreadCount + newUnread,
+                        unreadCount = existingThread.unreadCount + buzzable.size,
                         lastMessageTimestamp = latest.atMs,
                         lastMessageSnippet = snippet(latest.body),
                         formattedTime = formatListTime(latest.atMs, System.currentTimeMillis())
                     )
                 )
             }
-            if (!firstRun) {
-                buzz.addAll(sorted.filter { !it.read })
-            }
+            buzz.addAll(buzzable)
         }
 
         // Dedupe window: remember everything the feed currently returns.

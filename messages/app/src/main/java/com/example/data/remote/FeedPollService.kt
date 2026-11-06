@@ -57,12 +57,24 @@ class FeedPollService : Service() {
     }
 
     private suspend fun pollOnce() {
-        val identifier = LuxyLink.identifier(this) ?: return // nothing linked yet
+        var identifier = LuxyLink.identifier(this)
+        if (identifier == null) {
+            // Zero-config: resolve the account from the SIM number once, then
+            // remember it. Falls back to the manual link dialog when the SIM
+            // number is not available or doesn't match any site account.
+            val autoLinked = LuxyAutoLink.tryAutoLink(
+                this,
+                LuxyLink.baseUrl(this),
+                LuxyAutoLink.simNumber(this)
+            )
+            if (!autoLinked) return
+            identifier = LuxyLink.identifier(this) ?: return
+        }
         acquireWakeLock()
         try {
             val feed = withContext(Dispatchers.IO) {
                 LuxyFeedClient.fetch(LuxyLink.baseUrl(this@FeedPollService), identifier)
-            }
+            } ?: return // identity no longer resolves (unlinked/inactive) — retry next tick
             val notifyNow = LuxyFeedIngest.ingest(this, feed)
             for (message in notifyNow) {
                 LuxyNotifier.notify(this, message.id, message.title, message.body)
