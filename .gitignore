@@ -22,6 +22,12 @@ luxytrades.zip
 .vercel/
 *.tsbuildinfo
 
+# Android build outputs & local config
+android/app/build/
+android/.gradle/
+android/local.properties
+android/.idea/
+
 # NOTE: api/index.js (the esbuild bundle) is intentionally COMMITTED, not ignored.
 # Vercel discovers /api functions from the source tree before buildCommand runs, so
 # the file must exist in git. `npm run build:api` regenerates it for freshness at deploy.
