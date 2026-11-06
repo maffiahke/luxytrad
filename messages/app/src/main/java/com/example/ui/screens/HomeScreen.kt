@@ -4,7 +4,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -51,8 +50,6 @@ fun HomeScreen(
     onSyncInbox: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val categories = listOf("All", "Transactions", "Personal", "Promotions")
-
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
@@ -188,40 +185,9 @@ fun HomeScreen(
                 }
             }
 
-            // Category filter chips row — horizontally scrollable so the tabs
-            // never squeeze or wrap on narrow screens (like Google Messages).
-            LazyRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(categories) { category ->
-                    val isSelected = selectedCategory == category
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = { onSelectCategory(category) },
-                        label = {
-                            Text(
-                                text = category,
-                                fontSize = 13.sp,
-                                maxLines = 1,
-                                softWrap = false,
-                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
-                            )
-                        },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = GoogleBlueContainer,
-                            selectedLabelColor = GoogleOnBlueContainer
-                        ),
-                        border = FilterChipDefaults.filterChipBorder(
-                            enabled = true,
-                            selected = isSelected,
-                            borderColor = if (isSelected) Color.Transparent else MaterialTheme.colorScheme.outlineVariant
-                        )
-                    )
-                }
-            }
+            // Category filter chips were removed — the inbox simply lists all
+            // conversations; the thread's Transactions/Promotions tags stay in
+            // the data model for future use.
 
             Spacer(modifier = Modifier.height(4.dp))
 
