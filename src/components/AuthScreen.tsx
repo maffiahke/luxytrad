@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { detectCountryFromIp, detectCountrySync, type Country, type CountryGuess } from "../data/countries";
 import { CountryPicker, CountryTrigger } from "./CountryPicker";
 import { useToast } from "./Toast";
-import { ChartLogo, EyeIcon, LockIcon, UserIcon, AtIcon, PhoneIcon, CheckIcon, ShieldIcon } from "./icons";
+import { ChartLogo, EyeIcon, LockIcon, UserIcon, AtIcon, MailIcon, PhoneIcon, CheckIcon, ShieldIcon } from "./icons";
 import { ApiRequestError, login, register, setToken } from "../api/trader";
 
 export type AuthMode = "login" | "register";
@@ -46,7 +46,7 @@ function TextField({
   onChange: (v: string) => void;
   placeholder: string;
   type?: string;
-  inputMode?: "text" | "tel" | "numeric";
+  inputMode?: "text" | "tel" | "numeric" | "email";
   maxLength?: number;
   invalid?: boolean;
   onEnter?: () => void;
@@ -226,6 +226,7 @@ export function AuthScreen({
   // register-only
   const [fullName, setFullName] = useState("");
   const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [confirm, setConfirm] = useState("");
   const [referral, setReferral] = useState("");
   const [terms, setTerms] = useState(false);
@@ -254,6 +255,7 @@ export function AuthScreen({
     if (!isLogin) {
       if (fullName.trim().length < 2) e.fullName = "Enter your full name.";
       if (!/^[a-zA-Z0-9_]{3,}$/.test(username)) e.username = "3+ characters, letters/numbers/underscore only.";
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) e.email = "Enter a valid email address.";
       if (confirm !== password || !confirm) e.confirm = "Passwords do not match.";
       if (referral && referral.trim().length < 3) e.referral = "Referral code looks too short.";
       if (!terms) e.terms = "Please accept the terms to continue.";
@@ -290,6 +292,7 @@ export function AuthScreen({
             fullName: fullName.trim(),
             username,
             phone: phoneDigits,
+            email: email.trim(),
             password,
             countryCode: country.code,
             referralCode: referral.trim() || undefined,
@@ -434,6 +437,25 @@ export function AuthScreen({
                     invalid={!!errors.username}
                   />
                   <ErrorText msg={errors.username} />
+                </div>
+              )}
+
+              {!isLogin && (
+                <div className="anim-fade-up" style={delay()}>
+                  <Label>Email address</Label>
+                  <TextField
+                    icon={<MailIcon className="h-[18px] w-[18px]" />}
+                    value={email}
+                    onChange={(v) => {
+                      setEmail(v);
+                      if (errors.email) resetErrors();
+                    }}
+                    placeholder="jane@example.com"
+                    type="email"
+                    inputMode="email"
+                    invalid={!!errors.email}
+                  />
+                  <ErrorText msg={errors.email} />
                 </div>
               )}
 

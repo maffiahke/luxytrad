@@ -67,9 +67,9 @@ export function ProfileScreen({ state, patch }: { state: ProfileState; patch: (p
   const [fundMode, setFundMode] = useState<FundMode>(null);
   const [section, setSection] = useState<ProfileSection>(null);
 
-  const name = trader?.fullName || state.profile.name;
-  const email = trader?.email || state.profile.email;
-  const phone = trader?.phone ? `+${trader.phone}` : state.profile.phone;
+  const name = trader?.fullName?.trim() || "Luxytrades Trader";
+  const email = trader?.email?.trim() || "No email on file";
+  const phone = trader?.phone ? `+${trader.phone}` : "No phone on file";
   const stage =
     trader?.kyc === "APPROVED" ? "verified" : trader?.kyc === "UNDER_REVIEW" ? "review" : state.kyc;
 

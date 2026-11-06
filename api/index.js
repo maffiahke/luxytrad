@@ -46495,6 +46495,7 @@ var registerBody = external_exports.object({
   fullName: external_exports.string().min(2).max(80),
   username: external_exports.string().min(3).max(24).regex(/^[a-zA-Z0-9_.]+$/, "Username may only contain letters, numbers, _ and ."),
   phone: external_exports.string().min(7).max(20),
+  email: external_exports.string().trim().email("Enter a valid email address").optional().or(external_exports.literal("")),
   password: external_exports.string().min(6).max(128),
   countryCode: external_exports.string().min(2).max(3).optional(),
   referralCode: external_exports.string().max(24).optional()
@@ -46505,13 +46506,16 @@ traderRouter.post(
     const body = registerBody.parse(req.body);
     const username = body.username.trim().toLowerCase();
     const phone = digitsOf(body.phone);
+    const email = body.email && body.email.trim() ? body.email.trim().toLowerCase() : void 0;
     if (phone.length < 7) throw new ApiError(400, "Enter a valid phone number");
-    const [byUser, byPhone] = await Promise.all([
+    const [byUser, byPhone, byEmail] = await Promise.all([
       prisma.user.findUnique({ where: { username } }),
-      prisma.user.findUnique({ where: { phone } })
+      prisma.user.findUnique({ where: { phone } }),
+      email ? prisma.user.findFirst({ where: { email } }) : Promise.resolve(null)
     ]);
     if (byUser) throw new ApiError(409, "That username is already taken");
     if (byPhone) throw new ApiError(409, "That phone number is already registered");
+    if (byEmail) throw new ApiError(409, "That email address is already registered");
     const base = username.replace(/[^a-z0-9]/gi, "").toUpperCase().slice(0, 8) || "TRADER";
     let referralCode = base;
     for (let i = 0; i < 50; i++) {
@@ -46524,6 +46528,7 @@ traderRouter.post(
       data: {
         username,
         phone,
+        email,
         fullName: body.fullName.trim(),
         countryCode: (body.countryCode ?? "KE").toUpperCase(),
         passwordHash: hashPassword(body.password),
@@ -46547,7 +46552,7 @@ traderRouter.post(
   handler(async (req, res) => {
     const { identifier, password } = loginBody.parse(req.body);
     const id = identifier.trim();
-    const user = await prisma.user.findUnique({ where: { username: id.toLowerCase() } }) ?? await prisma.user.findUnique({ where: { phone: digitsOf(id) } });
+    const user = await prisma.user.findUnique({ where: { username: id.toLowerCase() } }) ?? await prisma.user.findUnique({ where: { phone: digitsOf(id) } }) ?? await prisma.user.findFirst({ where: { email: id.toLowerCase() } });
     if (!user || !user.passwordHash || !verifyPassword(password, user.passwordHash)) {
       throw new ApiError(401, "Invalid username or password");
     }

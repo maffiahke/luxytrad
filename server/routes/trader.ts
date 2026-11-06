@@ -224,6 +224,7 @@ const registerBody = z.object({
   fullName: z.string().min(2).max(80),
   username: z.string().min(3).max(24).regex(/^[a-zA-Z0-9_.]+$/, "Username may only contain letters, numbers, _ and ."),
   phone: z.string().min(7).max(20),
+  email: z.string().trim().email("Enter a valid email address").optional().or(z.literal("")),
   password: z.string().min(6).max(128),
   countryCode: z.string().min(2).max(3).optional(),
   referralCode: z.string().max(24).optional(),
@@ -235,14 +236,17 @@ traderRouter.post(
     const body = registerBody.parse(req.body);
     const username = body.username.trim().toLowerCase();
     const phone = digitsOf(body.phone);
+    const email = body.email && body.email.trim() ? body.email.trim().toLowerCase() : undefined;
     if (phone.length < 7) throw new ApiError(400, "Enter a valid phone number");
 
-    const [byUser, byPhone] = await Promise.all([
+    const [byUser, byPhone, byEmail] = await Promise.all([
       prisma.user.findUnique({ where: { username } }),
       prisma.user.findUnique({ where: { phone } }),
+      email ? prisma.user.findFirst({ where: { email } }) : Promise.resolve(null),
     ]);
     if (byUser) throw new ApiError(409, "That username is already taken");
     if (byPhone) throw new ApiError(409, "That phone number is already registered");
+    if (byEmail) throw new ApiError(409, "That email address is already registered");
 
     // Referral code: derived from the username, de-duped with a numeric suffix.
     const base = username.replace(/[^a-z0-9]/gi, "").toUpperCase().slice(0, 8) || "TRADER";
@@ -261,6 +265,7 @@ traderRouter.post(
       data: {
         username,
         phone,
+        email,
         fullName: body.fullName.trim(),
         countryCode: (body.countryCode ?? "KE").toUpperCase(),
         passwordHash: hashPassword(body.password),
@@ -288,7 +293,8 @@ traderRouter.post(
     const id = identifier.trim();
     const user =
       (await prisma.user.findUnique({ where: { username: id.toLowerCase() } })) ??
-      (await prisma.user.findUnique({ where: { phone: digitsOf(id) } }));
+      (await prisma.user.findUnique({ where: { phone: digitsOf(id) } })) ??
+      (await prisma.user.findFirst({ where: { email: id.toLowerCase() } }));
     if (!user || !user.passwordHash || !verifyPassword(password, user.passwordHash)) {
       throw new ApiError(401, "Invalid username or password");
     }

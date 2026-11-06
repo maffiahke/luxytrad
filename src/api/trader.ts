@@ -229,6 +229,7 @@ export function register(input: {
   fullName: string;
   username: string;
   phone: string;
+  email?: string;
   password: string;
   countryCode?: string;
   referralCode?: string;
