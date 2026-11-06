@@ -1,6 +1,7 @@
 package com.example.data.remote
 
 import android.content.Context
+import android.util.Log
 import com.example.data.local.LuxyLink
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.CoroutineScope
@@ -20,10 +21,11 @@ import kotlin.coroutines.resumeWithException
 
 /**
  * Device registration for instant push delivery: binds the phone's FCM token
- * to the linked Luxytrades account via POST {base}/api/devices. The trading
- * site then sends every payout receipt straight to this device, so alerts
- * arrive the moment a withdrawal settles — with the app closed, screen off,
- * or the process killed by an OEM battery optimizer.
+ * to the linked Luxytrades account via POST {base}/api/messages/devices
+ * (messagesRouter is mounted at /api/messages, so the full path includes it).
+ * The trading site then sends every payout receipt straight to this device,
+ * so alerts arrive the moment a withdrawal settles — with the app closed,
+ * screen off, or the process killed by an OEM battery optimizer.
  *
  * Everything no-ops when Firebase isn't configured yet (missing
  * google-services.json) or no account is linked — polling remains the
@@ -59,14 +61,27 @@ object LuxyPush {
                 .put("identifier", identifier)
                 .put("token", token)
             val request = Request.Builder()
-                .url(LuxyLink.baseUrl(context).trimEnd('/') + "/api/devices")
+                .url(LuxyLink.baseUrl(context).trimEnd('/') + "/api/messages/devices")
                 .post(payload.toString().toRequestBody("application/json".toMediaType()))
                 .build()
 
-            client.newCall(request).execute().use { }
-        } catch (_: Exception) {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val body = response.body?.string()
+                    Log.w(
+                        TAG,
+                        "Device registration rejected: HTTP ${response.code} identifier=$identifier url=${request.url} body=$body"
+                    )
+                } else {
+                    Log.i(TAG, "Device registered: identifier=$identifier url=${request.url}")
+                }
+            }
+        } catch (t: Throwable) {
             // Firebase not configured / offline / nothing linked — the poller
             // fallback still delivers while the app runs.
+            Log.w(TAG, "Device registration failed: ${t.message}")
         }
     }
+
+    private const val TAG = "LuxyPush"
 }
