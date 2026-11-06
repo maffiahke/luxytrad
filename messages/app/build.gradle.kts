@@ -123,6 +123,9 @@ dependencies {
   implementation(libs.logging.interceptor)
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
+  // Doze-friendly watchdog that revives the payout watcher when OEM
+  // battery savers force-close it while the app is closed.
+  implementation(libs.androidx.work.runtime.ktx)
   // implementation(libs.play.services.location)
   implementation(libs.retrofit)
   testImplementation(libs.androidx.compose.ui.test.junit4)

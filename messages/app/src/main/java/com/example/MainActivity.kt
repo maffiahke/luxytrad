@@ -1,7 +1,13 @@
-package com.example
+ package com.example
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -22,6 +28,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.data.local.LuxyLink
 import com.example.data.remote.FeedPollService
+import com.example.data.remote.LuxyWatchdogWorker
 import com.example.ui.components.GeminiAssistantSheet
 import com.example.ui.components.GoogleAccountDialog
 import com.example.ui.components.LuxyLinkDialog
@@ -81,6 +88,8 @@ fun MessagesApp(viewModel: SmsViewModel = viewModel()) {
     LaunchedEffect(Unit) {
         // Keep payout alerts flowing even when the app is closed / screen off.
         FeedPollService.ensureStarted(context)
+        LuxyWatchdogWorker.ensureScheduled(context)
+        requestBatteryExemptionOnce(context)
         if (!hasPermission) {
             permissionLauncher.launch(
                 arrayOf(
@@ -239,5 +248,35 @@ fun MessagesApp(viewModel: SmsViewModel = viewModel()) {
                 }
             }
         )
+    }
+}
+
+/**
+ * One-time system prompt asking the user to exempt the app from battery
+ * optimizations. Without it, Doze suspends the watcher's network access the
+ * moment the screen locks — and Tecno/Infinix task-killers force-close the
+ * service outright — which is precisely why payouts used to appear only
+ * after opening the app. With the exemption granted, the foreground poller
+ * keeps running and the heads-up notifications fire on their own.
+ */
+private fun requestBatteryExemptionOnce(context: Context) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+    try {
+        val power = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        if (power.isIgnoringBatteryOptimizations(context.packageName)) return
+
+        val prefs = context.getSharedPreferences("luxy_power", Context.MODE_PRIVATE)
+        if (prefs.getBoolean("exemption_requested", false)) return
+
+        prefs.edit().putBoolean("exemption_requested", true).apply()
+        context.startActivity(
+            Intent(
+                Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                Uri.parse("package:${context.packageName}")
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    } catch (_: Exception) {
+        // Some OEM ROMs block the direct intent — the user can still grant the
+        // exemption from Settings → Battery; the watchdog covers us meanwhile.
     }
 }
